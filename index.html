@@ -165,7 +165,6 @@
     gap: 8px; padding: 10px;
   }
   #station .tap-label { font-size: 13px; color: #b6935c; letter-spacing: 2px; text-transform: uppercase; }
-  #station .tap-art { font-size: 46px; }
 
   /* kitchen + log side panels */
   .panel {
@@ -438,8 +437,11 @@
     <button data-name="Maryann">Maryann</button>
   </div>
   <button id="start-btn">Start the Shift</button>
-  <p class="hint">The shift never ends — you pour until the owner loses faith and sacks you.
-  Keep pints perfect, punters patient, and the bar clean.</p>
+  <p class="hint">The shift never ends — you pour until the owner loses faith and sacks you.<br><br>
+  <b>The pour:</b> hold the tap to the ¾ line, wait for the surge to settle (don't rush it!),
+  then top off to just proud of the rim.<br>
+  <b>The rest:</b> click punters to take orders, deliver pints and plates, wipe messes,
+  and calm or cut off anyone getting rowdy — two rowdies side by side means a fight.</p>
 </div>
 
 <!-- ============ GAME ============ -->
@@ -526,8 +528,8 @@
 const CFG = {
   STOOLS: 6,
   PINT_PRICE: 8,
-  ARRIVE_EVERY: 9,        // seconds between arrivals (base; scales later)
-  PATIENCE_DRAIN: 6,      // %/sec while waiting (base)
+  ARRIVE_EVERY: 11,       // seconds between arrivals (base; the ramp shortens it)
+  PATIENCE_DRAIN: 4.5,    // %/sec while waiting (base)
   DRINK_TIME: [12, 20],   // seconds spent enjoying a pint
   REFILL_BASE: 0.65,      // chance of another round while still sober-ish
   FOOD_CHANCE: 0.45,      // chance a customer orders food after a pint
