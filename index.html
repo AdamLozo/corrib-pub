@@ -186,11 +186,52 @@
     font-size: 12px; color: #b6935c; letter-spacing: 2px; text-transform: uppercase;
     border-bottom: 1px solid #4a3416; padding-bottom: 6px; margin-bottom: 8px;
   }
-  #log { flex: 1; overflow-y: auto; font-size: 12.5px; line-height: 1.55; color: #cdb489; }
-  #log p { margin-bottom: 2px; }
-  #log .good { color: #8fc07a; }
-  #log .bad { color: #d98a6e; }
   #kitchen-items { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; }
+
+  /* ---- trouble board: live triage, not history ---- */
+  #trouble-items { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+  .tb-empty { font-size: 12.5px; font-style: italic; color: #7a6440; padding-top: 6px; }
+  .tb-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; line-height: 1.25; padding: 5px 8px;
+    border-radius: 8px; border: 1px solid; cursor: pointer;
+  }
+  .tb-item .tb-icon { font-size: 16px; flex: 0 0 auto; }
+  .tb-item:hover { filter: brightness(1.25); }
+  .tb-fight { color: #ff8a6a; border-color: #a4432a; background: rgba(164,67,42,.18); animation: warnpulse 1s infinite; }
+  .tb-hot   { color: #f0a06a; border-color: #8a5a2a; background: rgba(138,90,42,.16); }
+  .tb-warn  { color: #d9b96b; border-color: #6b4f24; background: rgba(107,79,36,.14); }
+  .tb-food  { color: #9fc98a; border-color: #4a6b3a; background: rgba(74,107,58,.14); }
+
+  /* tap an alert -> the culprit lights up */
+  .customer.flash .head, .mess.flash { animation: culprit .9s ease-out; }
+  @keyframes culprit {
+    0%, 60% { filter: drop-shadow(0 0 10px #f3c96b) brightness(1.6); }
+    100% { filter: none; }
+  }
+
+  /* ---- floating money toasts ---- */
+  .toast {
+    position: absolute; bottom: 72%; left: 50%; transform: translateX(-50%);
+    font-size: 15px; font-weight: bold; z-index: 9; pointer-events: none;
+    white-space: nowrap; text-shadow: 0 1px 3px #000;
+    animation: floatup 1.6s ease-out forwards;
+  }
+  @keyframes floatup {
+    from { opacity: 0; translate: 0 12px; }
+    15%  { opacity: 1; }
+    to   { opacity: 0; translate: 0 -48px; }
+  }
+  .toast.good { color: #8fc07a; }
+  .toast.meh  { color: #d9a13b; }
+  .toast.bad  { color: #d96a4e; }
+
+  /* owner's meter flinches when confidence takes a hit */
+  #confidence-bar.hit { animation: confhit .6s; }
+  @keyframes confhit {
+    0%, 40% { border-color: #ff5a3c; box-shadow: 0 0 12px rgba(255,90,60,.8); }
+    100% { border-color: #6b4f24; box-shadow: none; }
+  }
 
   /* ============ CUSTOMERS ============ */
   .customer {
@@ -299,7 +340,7 @@
   .stool:first-child .bubble::after { left: 28px; }
   .stool:last-child .bubble { left: auto; right: 0; transform: none; animation: none; }
   .stool:last-child .bubble::after { left: auto; right: 22px; }
-  .bubble .want { font-size: 17px; }
+  .bubble .want { font-size: 21px; }
   .bubble.urgent { background: #f2c9a8; animation: jitter .5s infinite; }
   .bubble.urgent::after { border-top-color: #f2c9a8; }
   @keyframes jitter { 0%,100% { transform: translateX(-50%) rotate(0); }
@@ -464,7 +505,7 @@
     .customer .pint-glass { font-size: 12px; height: 14px; }
     .meter { width: 44px; }
     .bubble { max-width: 96px; font-size: 10px; padding: 4px 6px; border-radius: 8px; }
-    .bubble .want { font-size: 13px; }
+    .bubble .want { font-size: 17px; }
     .actions button { font-size: 10px; padding: 4px 9px; }
     .mess { font-size: 24px; bottom: -30px; padding: 6px; }
     .mess::after { display: none; }
@@ -478,11 +519,12 @@
     #pour-glass { height: 98px; }
     #settle-ring { top: 36px; }
     #pour-status { min-height: 28px; font-size: 11.5px; }
-    .panel { max-width: none; flex: 1 1 40%; min-height: 92px; max-height: 120px; padding: 6px 8px; }
+    .panel { max-width: none; flex: 1 1 40%; min-height: 100px; max-height: 148px; padding: 6px 8px; }
     .panel h3 { font-size: 10px; padding-bottom: 4px; margin-bottom: 5px; }
-    #log { font-size: 10.5px; }
-    .korder { width: 31%; font-size: 9px; padding: 4px 2px; }
-    .korder .kicon { font-size: 18px; }
+    .korder { width: 44%; font-size: 10px; padding: 6px 3px; }
+    .korder .kicon { font-size: 22px; }
+    .tb-item { font-size: 11px; padding: 6px 7px; gap: 6px; }
+    .tb-item .tb-icon { font-size: 14px; }
 
     /* the carried pint docks above the station — fingers don't have cursors */
     #carry.docked {
@@ -581,8 +623,8 @@
         <button id="dump-btn">Dump it</button>
       </div>
       <div class="panel">
-        <h3>The Night So Far</h3>
-        <div id="log"></div>
+        <h3>Trouble Board</h3>
+        <div id="trouble-items"><div class="tb-empty">All quiet. Lovely.</div></div>
       </div>
     </div>
   </div>
@@ -657,15 +699,64 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const money = n => '$' + n.toFixed(2);
 
-function log(msg, cls) {
-  const el = document.createElement('p');
-  if (cls) el.className = cls;
-  el.textContent = msg;
-  const box = $('#log');
-  box.appendChild(el);
-  box.scrollTop = box.scrollHeight;
-  while (box.children.length > 60) box.removeChild(box.firstChild);
+/* The old event log is gone — voices, floating toasts and the Trouble Board
+   carry its job now. Kept as a stub so event sites still read as narration. */
+function log() {}
+
+/* ---- floating money toasts ---- */
+function floatText(seat, text, cls) {
+  const stool = document.querySelector(`.stool[data-seat="${seat}"]`);
+  if (!stool) return;
+  const t = document.createElement('div');
+  t.className = 'toast ' + (cls || '');
+  t.textContent = text;
+  stool.appendChild(t);
+  setTimeout(() => t.remove(), 1700);
 }
+
+/* ---- trouble board: what needs you RIGHT NOW ---- */
+function troubleList() {
+  const items = [];
+  if (S.tension) items.push({ pri: 0, cls: 'tb-fight', icon: '💢',
+    txt: `Fight in ${Math.max(1, Math.ceil(S.tension.t))}s — calm someone!`, ids: [S.tension.a.id, S.tension.b.id] });
+  for (const c of S.seats) {
+    if (!c || c.state === 'gone' || c.state === 'brawling') continue;
+    if (isWaiting(c) && c.patience < 40) {
+      items.push({ pri: c.patience < 20 ? 1 : 2, cls: c.patience < 20 ? 'tb-hot' : 'tb-warn', icon: '⏳',
+        txt: `${c.name}'s nearly done waiting`, ids: [c.id] });
+    } else if (isRowdy(c) && !S.tension) {
+      items.push({ pri: 3, cls: 'tb-warn', icon: '🍺', txt: `${c.name} is getting rowdy`, ids: [c.id] });
+    }
+  }
+  for (const o of S.kitchen) if (o.ready)
+    items.push({ pri: 2, cls: 'tb-food', icon: o.dish.icon, txt: `${o.dish.name} up for ${o.forName}`, ids: [o.forId] });
+  const filth = S.dirty.filter(Boolean).length;
+  if (filth >= 2) items.push({ pri: filth >= 3 ? 1 : 3, cls: filth >= 3 ? 'tb-hot' : 'tb-warn', icon: '🫗',
+    txt: `${filth} dirty spots`, mess: true });
+  items.sort((x, y) => x.pri - y.pri);
+  return items.slice(0, 5);
+}
+
+function renderTrouble() {
+  const items = troubleList();
+  $('#trouble-items').innerHTML = items.length
+    ? items.map(i => `<div class="tb-item ${i.cls}" data-ids="${(i.ids || []).join(',')}" ${i.mess ? 'data-mess="1"' : ''}>
+        <span class="tb-icon">${i.icon}</span><span>${i.txt}</span></div>`).join('')
+    : '<div class="tb-empty">All quiet. Lovely.</div>';
+}
+
+$('#trouble-items').addEventListener('click', e => {
+  const el = e.target.closest('.tb-item');
+  if (!el) return;
+  if (el.dataset.mess) {
+    document.querySelectorAll('.mess').forEach(m => { m.classList.remove('flash'); void m.offsetWidth; m.classList.add('flash'); });
+    return;
+  }
+  for (const id of (el.dataset.ids || '').split(',')) {
+    const c = S.seats.find(x => x && x.id == id);
+    if (c) { c.el.classList.remove('flash'); void c.el.offsetWidth; c.el.classList.add('flash'); }
+  }
+});
 
 /* ============ SOUND (all WebAudio-synthesized — no assets) ============ */
 const SND = { ctx: null, master: null, noiseBuf: null, hiss: null, ambient: null, muted: false };
@@ -938,7 +1029,7 @@ function spawnCustomer() {
   S.seats[seat] = c;
   renderCustomer(c);
   sfx.doorJingle();
-  if (S.dirty[seat]) { say(c, line(D.dirtySeat), 4000); speakC(c, 'dirty'); }
+  if (S.dirty[seat]) { say(c, 'Wipe this?', 3500); speakC(c, 'dirty'); }
 }
 
 function renderCustomer(c) {
@@ -987,18 +1078,17 @@ function enterState(c, st) {
   c.state = st;
   switch (st) {
     case 'wants_drink':
-      setBubble(c, '🍺', ''); say(c, line(D.orderDrink), 3500); speakC(c, 'order'); break;
+      setBubble(c, '🍺', ''); speakC(c, 'order'); break;
     case 'wants_refill':
-      setBubble(c, '🍺', 'Same again!'); speakC(c, 'refill'); break;
+      setBubble(c, '🍺', 'Again!'); speakC(c, 'refill'); break;
     case 'wants_bill':
-      setBubble(c, '💵', 'Settle up?'); speakC(c, 'bill'); break;
+      setBubble(c, '💵', 'Bill!'); speakC(c, 'bill'); break;
     case 'wants_food':
       setBubble(c, c.dish.icon, c.dish.name + '?');
-      say(c, line(D.orderFood).replaceAll('{dish}', c.dish.name.toLowerCase()), 4000);
       speakC(c, 'food');
       break;
     case 'waiting_food':
-      setBubble(c, '⏳', c.dish.name + '…'); break;
+      setBubble(c, '⏳', ''); break;
     case 'eating':
       setBubble(c, null);
       c.el.querySelector('.pint-glass').textContent = c.dish.icon;
@@ -1042,6 +1132,7 @@ function leaveHappy(c) {
   else { bumpRep(-1); S.confidence = Math.max(0, S.confidence - 2);
          log(`${c.name} barely tipped — the owner counts every coin.`, 'bad'); }
   log(`${c.name} paid ${money(pay)} (${money(c.tipTotal)} tip) and ${line(D.leaveHappy)}`, 'good');
+  floatText(c.seat, '+' + money(c.tipTotal), ratio >= 0.18 ? 'good' : ratio >= 0.08 ? 'meh' : 'bad');
   sfx.kaching();
   removeCustomer(c);
 }
@@ -1050,6 +1141,7 @@ function leaveAngry(c, reason) {
   S.confidence = Math.max(0, S.confidence - 6);
   bumpRep(-4);
   log(`${c.name} ${line(D.leaveAngry)}${reason ? ' (' + reason + ')' : ''}`, 'bad');
+  floatText(c.seat, '$0 💸', 'bad');
   sfx.doorSlam();
   removeCustomer(c);
 }
@@ -1066,7 +1158,7 @@ function deliverPint(c) {
   if (overServed) {
     // pouring into a customer already half-cut: no tip, and the owner notices
     S.confidence = Math.max(0, S.confidence - 3);
-    log(`You over-served ${c.name} — the owner shoots you a look.`, 'bad');
+    floatText(c.seat, 'over-served — no tip!', 'bad');
   } else {
     // tip earned now, paid with the bill: quality x how fresh their patience still was
     const speedFactor = 0.4 + 0.6 * (c.patience / 100);
@@ -1074,7 +1166,7 @@ function deliverPint(c) {
   }
   c.patience = Math.min(100, c.patience + 45);   // a fresh pint restores the soul
   sfx.clink();
-  say(c, line(q.mult >= 0.18 ? D.thanks : D.thanksBad));
+  say(c, q.mult >= 0.18 ? pick(['Sláinte!', 'Grand.', 'Lovely!']) : pick(['Hmm.', 'Ah here...']));
   speakC(c, q.mult >= 0.18 ? 'thanks' : 'thanksbad');
   enterState(c, 'drinking');
 }
@@ -1089,7 +1181,7 @@ function calmDown(c) {
   c.drunk = Math.max(0, c.drunk - 10);
   c.patience = Math.min(100, c.patience + 10);
   sfx.calm();
-  say(c, line(D.calmed));
+  say(c, 'Grand, grand...');
   speakC(c, 'calmed');
   log(`You talked ${c.name} down. Peace in our time.`, 'good');
 }
@@ -1098,7 +1190,7 @@ function cutOff(c) {
   if (c.cutOff || c.state === 'gone') return;
   c.cutOff = true;
   c.tipTotal *= 0.85;
-  say(c, line(D.cutOff), 3500);
+  say(c, '...fair enough.', 3000);
   speakC(c, 'cutoff');
   if (c.state === 'waiting_food') S.kitchen = S.kitchen.filter(o => o.forId !== c.id);
   enterState(c, 'wants_bill');
@@ -1112,7 +1204,7 @@ function updateRowdy(c, dt) {
     c.barkT -= dt;
     if (c.barkT <= 0) {
       c.barkT = rand(5, 10);
-      if (!isWaiting(c)) { say(c, line(D.rowdy), 2500); speakC(c, 'rowdy'); }
+      if (!isWaiting(c)) { say(c, pick(['🎵🎵!', 'OI!', '💢!']), 2000); speakC(c, 'rowdy'); }
     }
   }
 }
@@ -1199,7 +1291,7 @@ function onCustomerClick(c) {
   }
   if (S.carrying?.type === 'food') {
     if (c.state === 'waiting_food' && S.carrying.forId === c.id) { deliverFood(c); }
-    else if (c.state === 'waiting_food') { say(c, `That's not mine — I'm after the ${c.dish.name.toLowerCase()}!`); }
+    else if (c.state === 'waiting_food') { say(c, 'Not mine!'); }
     return;
   }
   if (c.state === 'wants_food') { takeFoodOrder(c); return; }
@@ -1212,7 +1304,7 @@ function takeFoodOrder(c) {
     kid: S.nextId++, dish: c.dish, forId: c.id, forName: c.name,
     t: rand(c.dish.cook[0], c.dish.cook[1]), ready: false,
   });
-  say(c, line(D.foodTaken));
+  say(c, 'Sound.');
   enterState(c, 'waiting_food');
   renderKitchen();
 }
@@ -1291,7 +1383,7 @@ function wipe(seat, messEl) {
   S.dirty[seat] = false;
   document.querySelector(`.stool[data-seat="${seat}"]`).classList.remove('dirty');
   const c = S.seats[seat];
-  if (c && c.state !== 'gone') { c.patience = Math.min(100, c.patience + 10); say(c, 'Better. Thanks, ' + S.barkeep + '.'); }
+  if (c && c.state !== 'gone') { c.patience = Math.min(100, c.patience + 10); say(c, 'Better.'); }
 }
 
 /* ---- per-frame update ---- */
@@ -1545,8 +1637,14 @@ function renderHUD() {
   $('#stat-clock').textContent = `${m}:${String(s).padStart(2, '0')}`;
   $('#stat-rep').textContent = Math.round(S.rep);
   $('#confidence-fill').style.width = Math.max(0, S.confidence) + '%';
-  $('#confidence-bar').classList.toggle('warn', S.confidence < 30);
+  const bar = $('#confidence-bar');
+  bar.classList.toggle('warn', S.confidence < 30);
+  if (S.confidence < renderHUD.lastConf - 0.9) {   // a real hit, not passive drain
+    bar.classList.remove('hit'); void bar.offsetWidth; bar.classList.add('hit');
+  }
+  renderHUD.lastConf = S.confidence;
 }
+renderHUD.lastConf = 100;
 
 /* ============ THE SACK ============ */
 function fireBartender() {
@@ -1580,7 +1678,7 @@ try { if (localStorage.getItem('corrib-muted') === '1') setMuted(true); } catch 
 if (IS_TOUCH) $('#carry').classList.add('docked');
 
 /* ============ MAIN LOOP ============ */
-let lastT = 0, ambAcc = 0;
+let lastT = 0, ambAcc = 0, tbAcc = 0;
 function tick(t) {
   if (!S.running) return;
   const dt = Math.min(0.1, (t - lastT) / 1000);
@@ -1620,6 +1718,9 @@ function tick(t) {
   updateKitchen(dt);
   updatePour(dt);
   renderHUD();
+
+  tbAcc += dt;
+  if (tbAcc > 0.25) { tbAcc = 0; renderTrouble(); }
 
   // room noise follows the crowd
   ambAcc += dt;
