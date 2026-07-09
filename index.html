@@ -533,16 +533,16 @@
 const CFG = {
   STOOLS: 6,
   PINT_PRICE: 8,
-  ARRIVE_EVERY: 11,       // seconds between arrivals (base; the ramp shortens it)
-  PATIENCE_DRAIN: 4.5,    // %/sec while waiting (base)
-  DRINK_TIME: [12, 20],   // seconds spent enjoying a pint
+  ARRIVE_EVERY: 15,       // seconds between arrivals (base; the ramp shortens it)
+  PATIENCE_DRAIN: 3.4,    // %/sec while waiting (base)
+  DRINK_TIME: [16, 26],   // seconds spent enjoying a pint
   REFILL_BASE: 0.65,      // chance of another round while still sober-ish
   FOOD_CHANCE: 0.45,      // chance a customer orders food after a pint
   FOOD_TIP: 0.15,
-  EAT_TIME: [9, 14],
+  EAT_TIME: [11, 16],
   ROWDY_AT: 65,           // drunkenness where the songs and shoving start
   OVERSERVE_AT: 80,       // pouring past this is on you
-  FIGHT_FUSE: 9,          // seconds two adjacent rowdies simmer before it kicks off
+  FIGHT_FUSE: 12,         // seconds two adjacent rowdies simmer before it kicks off
 };
 
 /* ============ STATE ============ */
@@ -568,7 +568,7 @@ const S = {
 };
 
 /* Difficulty climbs forever: more arrivals, thirstier crowd, thinner patience. */
-const diff = () => 1 + Math.min(1.5, (S.shiftSec / 60) * 0.055);
+const diff = () => 1 + Math.min(1.5, (S.shiftSec / 60) * 0.035);
 const bumpRep = d => { S.rep = Math.max(0, Math.min(100, S.rep + d)); };
 
 /* ============ UTILS ============ */
