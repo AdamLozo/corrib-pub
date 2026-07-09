@@ -56,6 +56,9 @@
   }
   #start-btn:hover { background: linear-gradient(#3a7d40, #26582b); }
   #setup-screen .hint { margin-top: 26px; font-size: 13px; color: #8a744c; max-width: 460px; line-height: 1.5; }
+  .credit { margin-top: 20px; font-size: 12px; color: #6f5a35; }
+  .credit a { color: #c9a96e; text-decoration: none; border-bottom: 1px dotted #8a6a33; }
+  .credit a:hover { color: #f3c96b; }
 
   /* ============ GAME FRAME ============ */
   #game { display: none; height: 100%; flex-direction: column; }
@@ -442,6 +445,7 @@
   then top off to just proud of the rim.<br>
   <b>The rest:</b> click punters to take orders, deliver pints and plates, wipe messes,
   and calm or cut off anyone getting rowdy — two rowdies side by side means a fight.</p>
+  <p class="credit">A game by <a href="https://adamlozo.com" target="_blank" rel="noopener">adamlozo.com</a></p>
 </div>
 
 <!-- ============ GAME ============ -->
@@ -519,6 +523,7 @@
   </div>
   <div id="pour-tally"></div>
   <button id="restart-btn">Beg for the Job Back</button>
+  <p class="credit">A game by <a href="https://adamlozo.com" target="_blank" rel="noopener">adamlozo.com</a></p>
 </div>
 
 <script>
@@ -829,8 +834,16 @@ function deliverPint(c) {
     c.tipTotal += CFG.PINT_PRICE * q.mult * speedFactor;
   }
   c.patience = Math.min(100, c.patience + 45);   // a fresh pint restores the soul
-  say(c, line(q.mult >= 0.18 ? D.thanks : D.thanksBad));
-  enterState(c, 'drinking');
+  // fresh pint in hand is when the stomach pipes up
+  if (!c.wantedFood && Math.random() < Math.min(0.65, CFG.FOOD_CHANCE * diff())) {
+    c.wantedFood = true;
+    c.dish = pick(D.dishes);
+    c.el.querySelector('.pint-glass').textContent = '🍺';
+    enterState(c, 'wants_food');
+  } else {
+    say(c, line(q.mult >= 0.18 ? D.thanks : D.thanksBad));
+    enterState(c, 'drinking');
+  }
 }
 
 /* ============ ROWDINESS & FIGHTS ============ */
@@ -1067,15 +1080,8 @@ function updateCustomer(c, dt) {
       if (c.t <= 0) {
         c.el.querySelector('.pint-glass').textContent = '';
         c.patience = Math.max(c.patience, 70);
-        if (c.state === 'drinking' && !c.wantedFood &&
-            Math.random() < Math.min(0.65, CFG.FOOD_CHANCE * diff())) {
-          c.wantedFood = true;
-          c.dish = pick(D.dishes);
-          enterState(c, 'wants_food');
-        } else {
-          const another = !c.cutOff && Math.random() < CFG.REFILL_BASE && c.drunk < 75;
-          enterState(c, another ? 'wants_refill' : 'wants_bill');
-        }
+        const another = !c.cutOff && Math.random() < CFG.REFILL_BASE && c.drunk < 75;
+        enterState(c, another ? 'wants_refill' : 'wants_bill');
       }
       break;
   }
