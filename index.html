@@ -327,6 +327,36 @@
     display: none;
   }
   #dump-btn:hover { color: #f3c96b; }
+
+  /* ============ KITCHEN ORDERS ============ */
+  .korder {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    width: 74px; padding: 6px 4px;
+    background: #241708; border: 1px solid #4a3416; border-radius: 8px;
+    font-size: 10px; color: #c9a96e; text-align: center;
+  }
+  .korder .kicon { font-size: 22px; }
+  .korder .ktime { color: #977a45; }
+  .korder.ready { border-color: #8fc07a; cursor: pointer; animation: readypulse 1s infinite; }
+  .korder.ready .ktime { color: #8fc07a; font-weight: bold; }
+  .korder.ready:hover { background: #2f2410; }
+  @keyframes readypulse { 50% { box-shadow: 0 0 10px rgba(143,192,122,.5); } }
+
+  /* ============ CLEANLINESS ============ */
+  .mess {
+    position: absolute; bottom: -34px; left: 50%; transform: translateX(-50%);
+    font-size: 20px; cursor: pointer; z-index: 6;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
+    transition: opacity .4s, transform .4s;
+  }
+  .mess::after {
+    content: 'wipe?'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    font-size: 9px; color: #d9a13b; opacity: 0; font-family: Georgia, serif;
+  }
+  .mess:hover::after { opacity: 1; }
+  .mess:hover { transform: translateX(-50%) scale(1.15); }
+  .mess.wiping { opacity: 0; transform: translateX(-50%) scale(.4) rotate(40deg); }
+  .stool.dirty .empty-marker { color: #a4693c; }
 </style>
 </head>
 <body>
@@ -422,6 +452,9 @@ const CFG = {
   PATIENCE_DRAIN: 6,      // %/sec while waiting (base)
   DRINK_TIME: [12, 20],   // seconds spent enjoying a pint
   REFILL_BASE: 0.65,      // chance of another round while still sober-ish
+  FOOD_CHANCE: 0.45,      // chance a customer orders food after a pint
+  FOOD_TIP: 0.15,
+  EAT_TIME: [9, 14],
 };
 
 /* ============ STATE ============ */
@@ -437,6 +470,8 @@ const S = {
   carrying: null,      // null | {type:'pint', quality} | {type:'food', dish, forId}
   arriveTimer: 3,      // first punter walks in quickly
   nextId: 1,
+  kitchen: [],         // food orders cooking / ready at the hatch
+  dirty: [],           // per-stool: needs a wipe
 };
 
 /* ============ UTILS ============ */
@@ -490,6 +525,30 @@ const D = {
     'left in a huff, muttering about the service.',
     'walked out dry as a stone and twice as cross.',
   ],
+  dishes: [
+    { icon: '🍲', name: 'Beef Stew', price: 14, cook: [13, 18] },
+    { icon: '🥣', name: 'Chowder',   price: 13, cook: [11, 16] },
+    { icon: '🥪', name: 'Toastie',   price: 9,  cook: [8, 12] },
+    { icon: '🍟', name: 'Chips',     price: 6,  cook: [7, 10] },
+  ],
+  orderFood: [
+    'Any chance of some {dish}, {bk}? The pint needs company.',
+    "I'd murder a plate of {dish}, {bk}.",
+    'Stick an order of {dish} on for me, {bk}, will ye?',
+  ],
+  foodTaken: [
+    "Good on ye, {bk}. I'll sit tight.",
+    'Grand. No rush — well, a small rush.',
+  ],
+  foodThanks: [
+    'Ah, that smells mighty. Thanks, {bk}!',
+    "You're feeding the parish tonight, {bk}.",
+    'Lovely grub, {bk}!',
+  ],
+  dirtySeat: [
+    "State of this spot, {bk}... run a cloth over it, would ye?",
+    "This bar's stickier than the floor at closing, {bk}.",
+  ],
 };
 const line = (arr) => pick(arr).replaceAll('{bk}', S.barkeep);
 
@@ -503,7 +562,9 @@ function freeSeats() {
 function spawnCustomer() {
   const seats = freeSeats();
   if (!seats.length) return;
-  const seat = pick(seats);
+  // punters prefer a clean spot; a dirty one gets taken grudgingly
+  const clean = seats.filter(i => !S.dirty[i]);
+  const seat = clean.length ? pick(clean) : pick(seats);
   const c = {
     id: S.nextId++,
     name: pick(D.names),
@@ -517,10 +578,14 @@ function spawnCustomer() {
     tab: 0,                   // what they owe
     tipTotal: 0,              // earned tips, paid out with the bill
     pints: 0,
+    wantedFood: false,
+    dish: null,
     el: null,
   };
+  if (S.dirty[seat]) { c.patience = 70; }
   S.seats[seat] = c;
   renderCustomer(c);
+  if (S.dirty[seat]) say(c, line(D.dirtySeat), 4000);
 }
 
 function renderCustomer(c) {
@@ -556,7 +621,7 @@ function say(c, text, ms = 3000) {
   c._sayT = setTimeout(() => { if (!isWaiting(c)) setBubble(c, null); }, ms);
 }
 
-const isWaiting = c => ['wants_drink','wants_refill','wants_bill'].includes(c.state);
+const isWaiting = c => ['wants_drink','wants_refill','wants_bill','wants_food','waiting_food'].includes(c.state);
 
 function enterState(c, st) {
   c.state = st;
@@ -567,6 +632,17 @@ function enterState(c, st) {
       setBubble(c, '🍺', 'Same again!'); break;
     case 'wants_bill':
       setBubble(c, '💵', 'Settle up?'); break;
+    case 'wants_food':
+      setBubble(c, c.dish.icon, c.dish.name + '?');
+      say(c, line(D.orderFood).replaceAll('{dish}', c.dish.name.toLowerCase()), 4000);
+      break;
+    case 'waiting_food':
+      setBubble(c, '⏳', c.dish.name + '…'); break;
+    case 'eating':
+      setBubble(c, null);
+      c.el.querySelector('.pint-glass').textContent = c.dish.icon;
+      c.t = rand(CFG.EAT_TIME[0], CFG.EAT_TIME[1]);
+      break;
     case 'drinking':
       setBubble(c, null);
       c.el.querySelector('.pint-glass').textContent = '🍺';
@@ -582,6 +658,7 @@ function removeCustomer(c, afterMs = 900) {
   setTimeout(() => {
     c.el.remove();
     S.seats[seat] = null;
+    makeDirty(seat);   // nobody leaves a spotless spot
     const stool = document.querySelector(`.stool[data-seat="${seat}"]`);
     if (!stool.querySelector('.empty-marker')) {
       const m = document.createElement('div');
@@ -592,6 +669,7 @@ function removeCustomer(c, afterMs = 900) {
 }
 
 function leaveHappy(c) {
+  if (S.dirty[c.seat]) c.tipTotal *= 0.75;   // sticky bar, lighter tip
   const pay = c.tab + c.tipTotal;
   S.tips += c.tipTotal;
   S.customersServed++;
@@ -629,10 +707,99 @@ function onCustomerClick(c) {
     deliverPint(c);
     return;
   }
-  if (c.state === 'wants_bill') {
-    leaveHappy(c);
+  if (S.carrying?.type === 'food') {
+    if (c.state === 'waiting_food' && S.carrying.forId === c.id) { deliverFood(c); }
+    else if (c.state === 'waiting_food') { say(c, `That's not mine — I'm after the ${c.dish.name.toLowerCase()}!`); }
     return;
   }
+  if (c.state === 'wants_food') { takeFoodOrder(c); return; }
+  if (c.state === 'wants_bill') { leaveHappy(c); return; }
+}
+
+/* ============ KITCHEN / FOOD ============ */
+function takeFoodOrder(c) {
+  S.kitchen.push({
+    kid: S.nextId++, dish: c.dish, forId: c.id, forName: c.name,
+    t: rand(c.dish.cook[0], c.dish.cook[1]), ready: false,
+  });
+  say(c, line(D.foodTaken));
+  enterState(c, 'waiting_food');
+  renderKitchen();
+}
+
+function deliverFood(c) {
+  setCarrying(null);
+  c.tab += c.dish.price;
+  const speedFactor = 0.4 + 0.6 * (c.patience / 100);
+  c.tipTotal += c.dish.price * CFG.FOOD_TIP * speedFactor;
+  c.patience = Math.min(100, c.patience + 50);
+  say(c, line(D.foodThanks));
+  enterState(c, 'eating');
+}
+
+function updateKitchen(dt) {
+  let changed = false;
+  for (const o of S.kitchen) {
+    if (!o.ready) {
+      o.t -= dt;
+      if (o.t <= 0) { o.ready = true; changed = true; log(`Kitchen: ${o.dish.name} up for ${o.forName}!`); }
+      else {
+        const el = document.querySelector(`.korder[data-kid="${o.kid}"] .ktime`);
+        if (el) el.textContent = Math.ceil(o.t) + 's';
+      }
+    }
+  }
+  // bin orders whose customer has gone
+  const before = S.kitchen.length;
+  S.kitchen = S.kitchen.filter(o => {
+    const c = S.seats.find(x => x && x.id === o.forId);
+    return c && c.state !== 'gone';
+  });
+  if (changed || S.kitchen.length !== before) renderKitchen();
+}
+
+function renderKitchen() {
+  const box = $('#kitchen-items');
+  box.innerHTML = S.kitchen.map(o => `
+    <div class="korder ${o.ready ? 'ready' : ''}" data-kid="${o.kid}">
+      <div class="kicon">${o.dish.icon}</div>
+      <div>${o.dish.name}</div>
+      <div>for ${o.forName}</div>
+      <div class="ktime">${o.ready ? 'READY — take it!' : Math.ceil(o.t) + 's'}</div>
+    </div>`).join('');
+}
+
+$('#kitchen-items').addEventListener('click', e => {
+  const el = e.target.closest('.korder.ready');
+  if (!el || S.carrying) return;
+  const idx = S.kitchen.findIndex(o => o.kid == el.dataset.kid);
+  if (idx < 0) return;
+  const o = S.kitchen.splice(idx, 1)[0];
+  setCarrying({ type: 'food', icon: o.dish.icon, dish: o.dish.name, forId: o.forId, forName: o.forName });
+  renderKitchen();
+});
+
+/* ============ CLEANLINESS ============ */
+function makeDirty(seat) {
+  if (S.dirty[seat]) return;
+  S.dirty[seat] = true;
+  const stool = document.querySelector(`.stool[data-seat="${seat}"]`);
+  stool.classList.add('dirty');
+  const m = document.createElement('div');
+  m.className = 'mess';
+  m.textContent = pick(['🫗','🥜','🍂']);
+  m.addEventListener('click', e => { e.stopPropagation(); wipe(seat, m); });
+  stool.appendChild(m);
+}
+
+function wipe(seat, messEl) {
+  if (!S.dirty[seat]) return;
+  messEl.classList.add('wiping');
+  setTimeout(() => messEl.remove(), 400);
+  S.dirty[seat] = false;
+  document.querySelector(`.stool[data-seat="${seat}"]`).classList.remove('dirty');
+  const c = S.seats[seat];
+  if (c && c.state !== 'gone') { c.patience = Math.min(100, c.patience + 10); say(c, 'Better. Thanks, ' + S.barkeep + '.'); }
 }
 
 /* ---- per-frame update ---- */
@@ -645,17 +812,30 @@ function updateCustomer(c, dt) {
     case 'wants_drink':
     case 'wants_refill':
     case 'wants_bill':
-      c.patience -= CFG.PATIENCE_DRAIN * dt;
+    case 'wants_food':
+    case 'waiting_food': {
+      let drain = CFG.PATIENCE_DRAIN;
+      if (c.state === 'waiting_food') drain *= 0.45;   // they know grub takes time
+      if (S.dirty[c.seat]) drain *= 1.35;              // stewing at a sticky spot
+      c.patience -= drain * dt;
       if (c.patience <= 35) c.el.querySelector('.bubble').classList.add('urgent');
       if (c.patience <= 0) leaveAngry(c, 'fed up waiting');
       break;
+    }
+    case 'eating':
     case 'drinking':
       c.t -= dt;
       if (c.t <= 0) {
         c.el.querySelector('.pint-glass').textContent = '';
         c.patience = Math.max(c.patience, 70);
-        const another = Math.random() < CFG.REFILL_BASE && c.drunk < 75;
-        enterState(c, another ? 'wants_refill' : 'wants_bill');
+        if (c.state === 'drinking' && !c.wantedFood && Math.random() < CFG.FOOD_CHANCE) {
+          c.wantedFood = true;
+          c.dish = pick(D.dishes);
+          enterState(c, 'wants_food');
+        } else {
+          const another = Math.random() < CFG.REFILL_BASE && c.drunk < 75;
+          enterState(c, another ? 'wants_refill' : 'wants_bill');
+        }
       }
       break;
   }
@@ -677,7 +857,8 @@ function setCarrying(v) {
     $('#carry-tag').textContent = v.type === 'pint' ? v.quality.label : v.dish;
   }
   $('#tap-hold').disabled = !!v;
-  $('#dump-btn').style.display = v?.type === 'pint' ? 'block' : 'none';
+  $('#dump-btn').style.display = v ? 'block' : 'none';
+  $('#dump-btn').textContent = v?.type === 'food' ? 'Put it back' : 'Dump it';
 }
 document.addEventListener('mousemove', e => {
   const el = $('#carry');
@@ -818,10 +999,19 @@ document.addEventListener('mouseup', pourRelease);
 document.addEventListener('touchend', pourRelease);
 
 $('#dump-btn').addEventListener('click', () => {
-  if (S.carrying?.type !== 'pint') return;
-  setCarrying(null);
-  resetGlass();
-  pourStatus('Down the drain. The harp looks away in shame.');
+  if (!S.carrying) return;
+  if (S.carrying.type === 'pint') {
+    setCarrying(null);
+    resetGlass();
+    pourStatus('Down the drain. The harp looks away in shame.');
+  } else {
+    // set the plate back on the hatch
+    const v = S.carrying;
+    S.kitchen.push({ kid: S.nextId++, dish: D.dishes.find(d => d.name === v.dish),
+                     forId: v.forId, forName: v.forName, t: 0, ready: true });
+    setCarrying(null);
+    renderKitchen();
+  }
 });
 
 /* ============ SCENE SETUP ============ */
@@ -835,6 +1025,7 @@ function buildStools() {
     st.innerHTML = `<div class="seat-shadow"></div><div class="empty-marker">empty stool</div>`;
     row.appendChild(st);
     S.seats.push(null);
+    S.dirty.push(false);
   }
 }
 
@@ -866,6 +1057,7 @@ function tick(t) {
   // customers
   for (const c of S.seats) if (c && c.state !== 'gone') updateCustomer(c, dt);
 
+  updateKitchen(dt);
   updatePour(dt);
   renderHUD();
   requestAnimationFrame(tick);
