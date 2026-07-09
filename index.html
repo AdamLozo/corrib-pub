@@ -211,6 +211,36 @@
   .patience .fill { background: #6fae52; }
   .patience.low .fill { background: #c9552e; }
   .patience.mid .fill { background: #d9a13b; }
+  .drunkm .fill { background: linear-gradient(90deg, #b98c50, #c9552e); }
+
+  /* ---- rowdy / fights ---- */
+  .customer.rowdy .head { animation: sway 1.6s ease-in-out infinite; display: inline-block; }
+  @keyframes sway { 0%,100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg) translateY(1px); } }
+  .customer.rowdy .body { box-shadow: inset 0 -8px 12px rgba(0,0,0,.35), 0 0 14px rgba(217,90,46,.45); }
+  .customer .actions { display: none; justify-content: center; gap: 4px; margin-top: 3px; }
+  .customer.rowdy .actions { display: flex; }
+  .actions button {
+    font-size: 9px; padding: 2px 7px; border-radius: 8px;
+    background: #33230f; color: #e0c084; border: 1px solid #7a5a26;
+  }
+  .actions button:hover { background: #4a3416; color: #f3c96b; }
+  .tension-badge {
+    position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+    font-size: 15px; z-index: 7; animation: jitter .3s infinite;
+    text-shadow: 0 0 8px rgba(255,90,40,.8); pointer-events: none;
+  }
+  .tension-timer {
+    position: absolute; top: -36px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: #ff9a66; background: rgba(30,10,4,.9);
+    border: 1px solid #a4432a; border-radius: 8px; padding: 1px 8px;
+    z-index: 8; white-space: nowrap; pointer-events: none;
+  }
+  .customer.fighting { animation: brawlshake .12s infinite; }
+  @keyframes brawlshake {
+    0% { transform: translateX(-54%) rotate(-3deg); }
+    50% { transform: translateX(-46%) rotate(3deg); }
+    100% { transform: translateX(-50%); }
+  }
 
   .bubble {
     position: absolute; bottom: 104%; left: 50%; transform: translateX(-50%);
@@ -455,6 +485,9 @@ const CFG = {
   FOOD_CHANCE: 0.45,      // chance a customer orders food after a pint
   FOOD_TIP: 0.15,
   EAT_TIME: [9, 14],
+  ROWDY_AT: 65,           // drunkenness where the songs and shoving start
+  OVERSERVE_AT: 80,       // pouring past this is on you
+  FIGHT_FUSE: 9,          // seconds two adjacent rowdies simmer before it kicks off
 };
 
 /* ============ STATE ============ */
@@ -472,6 +505,7 @@ const S = {
   nextId: 1,
   kitchen: [],         // food orders cooking / ready at the hatch
   dirty: [],           // per-stool: needs a wipe
+  tension: null,       // two adjacent rowdies squaring up: {a, b, t}
 };
 
 /* ============ UTILS ============ */
@@ -549,6 +583,22 @@ const D = {
     "State of this spot, {bk}... run a cloth over it, would ye?",
     "This bar's stickier than the floor at closing, {bk}.",
   ],
+  rowdy: [
+    '🎵 THE FIELDS OF ATHENRYYY 🎵',
+    "Yer pullin' SHORT PINTS, {bk}!",
+    'ANOTHER! And one for the harp!',
+    "C'mere and say that to me FACE!",
+    "I could'a played for Mayo, y'know!!",
+  ],
+  calmed: [
+    'Alright, alright... sound out, {bk}.',
+    "Ah you're right, you're right. Water. Grand.",
+    "I'm grand. I'M GRAND. ...I'm grand.",
+  ],
+  cutOff: [
+    "Cut off?! In THIS establishment?! ...fair enough.",
+    "Ye wound me, {bk}. Deeply. What's the damage?",
+  ],
 };
 const line = (arr) => pick(arr).replaceAll('{bk}', S.barkeep);
 
@@ -565,9 +615,10 @@ function spawnCustomer() {
   // punters prefer a clean spot; a dirty one gets taken grudgingly
   const clean = seats.filter(i => !S.dirty[i]);
   const seat = clean.length ? pick(clean) : pick(seats);
+  const inUse = new Set(S.seats.filter(Boolean).map(c => c.name));
   const c = {
     id: S.nextId++,
-    name: pick(D.names),
+    name: pick(D.names.filter(n => !inUse.has(n))) || pick(D.names),
     face: pick(D.faces),
     shirt: pick(D.shirts),
     seat,
@@ -580,6 +631,9 @@ function spawnCustomer() {
     pints: 0,
     wantedFood: false,
     dish: null,
+    calmUntil: 0,       // recently talked down — behaves for a bit
+    cutOff: false,
+    barkT: rand(4, 9),  // seconds until next rowdy outburst
     el: null,
   };
   if (S.dirty[seat]) { c.patience = 70; }
@@ -600,10 +654,17 @@ function renderCustomer(c) {
     <div class="body" style="background:${c.shirt}"></div>
     <div class="pint-glass"></div>
     <div class="pname">${c.name}</div>
-    <div class="meter patience"><div class="fill" style="width:100%"></div></div>`;
+    <div class="meter patience"><div class="fill" style="width:100%"></div></div>
+    <div class="meter drunkm"><div class="fill" style="width:0%"></div></div>
+    <div class="actions">
+      <button class="act-calm">🖐 Calm</button>
+      <button class="act-cut">🚫 Cut off</button>
+    </div>`;
   stool.appendChild(el);
   c.el = el;
   el.addEventListener('click', () => onCustomerClick(c));
+  el.querySelector('.act-calm').addEventListener('click', e => { e.stopPropagation(); calmDown(c); });
+  el.querySelector('.act-cut').addEventListener('click', e => { e.stopPropagation(); cutOff(c); });
 }
 
 function setBubble(c, want, txt, urgent) {
@@ -687,18 +748,130 @@ function leaveAngry(c, reason) {
 /* ---- serving ---- */
 function deliverPint(c) {
   const q = S.carrying.quality;
+  const overServed = c.drunk >= CFG.OVERSERVE_AT;
   setCarrying(null);
   S.pintsServed++;
   c.pints++;
   c.tab += CFG.PINT_PRICE;
   c.drunk = Math.min(100, c.drunk + rand(14, 22));
-  // tip earned now, paid with the bill: quality x how fresh their patience still was
-  const speedFactor = 0.4 + 0.6 * (c.patience / 100);
-  const tip = CFG.PINT_PRICE * q.mult * speedFactor;
-  c.tipTotal += tip;
+  if (overServed) {
+    // pouring into a customer already half-cut: no tip, and the owner notices
+    S.confidence = Math.max(0, S.confidence - 3);
+    log(`You over-served ${c.name} — the owner shoots you a look.`, 'bad');
+  } else {
+    // tip earned now, paid with the bill: quality x how fresh their patience still was
+    const speedFactor = 0.4 + 0.6 * (c.patience / 100);
+    c.tipTotal += CFG.PINT_PRICE * q.mult * speedFactor;
+  }
   c.patience = Math.min(100, c.patience + 45);   // a fresh pint restores the soul
   say(c, line(q.mult >= 0.18 ? D.thanks : D.thanksBad));
   enterState(c, 'drinking');
+}
+
+/* ============ ROWDINESS & FIGHTS ============ */
+const isRowdy = c => c && c.state !== 'gone' && c.state !== 'brawling' && !c.cutOff &&
+                     c.drunk >= CFG.ROWDY_AT && S.shiftSec >= c.calmUntil;
+
+function calmDown(c) {
+  if (!isRowdy(c)) return;
+  c.calmUntil = S.shiftSec + 20;
+  c.drunk = Math.max(0, c.drunk - 10);
+  c.patience = Math.min(100, c.patience + 10);
+  say(c, line(D.calmed));
+  log(`You talked ${c.name} down. Peace in our time.`, 'good');
+}
+
+function cutOff(c) {
+  if (c.cutOff || c.state === 'gone') return;
+  c.cutOff = true;
+  c.tipTotal *= 0.85;
+  say(c, line(D.cutOff), 3500);
+  if (c.state === 'waiting_food') S.kitchen = S.kitchen.filter(o => o.forId !== c.id);
+  enterState(c, 'wants_bill');
+  log(`You cut ${c.name} off. The right call, probably.`);
+}
+
+function updateRowdy(c, dt) {
+  const rowdy = isRowdy(c);
+  c.el.classList.toggle('rowdy', rowdy);
+  if (rowdy) {
+    c.barkT -= dt;
+    if (c.barkT <= 0) {
+      c.barkT = rand(5, 10);
+      if (!isWaiting(c)) say(c, line(D.rowdy), 2500);
+    }
+  }
+}
+
+function scanForTension() {
+  if (S.tension) {
+    const { a, b } = S.tension;
+    if (!isRowdy(a) || !isRowdy(b) || Math.abs(a.seat - b.seat) !== 1) endTension(false);
+    return;
+  }
+  for (let i = 0; i < CFG.STOOLS - 1; i++) {
+    const a = S.seats[i], b = S.seats[i + 1];
+    if (isRowdy(a) && isRowdy(b)) {
+      S.tension = { a, b, t: CFG.FIGHT_FUSE };
+      for (const c of [a, b]) {
+        const badge = document.createElement('div');
+        badge.className = 'tension-badge'; badge.textContent = '💢';
+        c.el.appendChild(badge);
+      }
+      const timer = document.createElement('div');
+      timer.className = 'tension-timer';
+      a.el.appendChild(timer);
+      log(`${a.name} and ${b.name} are squaring up — calm one of them, quick!`, 'bad');
+      return;
+    }
+  }
+}
+
+function endTension(fought) {
+  if (!S.tension) return;
+  for (const c of [S.tension.a, S.tension.b]) {
+    c.el.querySelector('.tension-badge')?.remove();
+    c.el.querySelector('.tension-timer')?.remove();
+  }
+  if (!fought) log('The tempers simmer back down.');
+  S.tension = null;
+}
+
+function updateTension(dt) {
+  scanForTension();
+  if (!S.tension) return;
+  S.tension.t -= dt;
+  const timer = S.tension.a.el.querySelector('.tension-timer');
+  if (timer) timer.textContent = `FIGHT in ${Math.ceil(S.tension.t)}s!`;
+  if (S.tension.t <= 0) brawl(S.tension.a, S.tension.b);
+}
+
+function brawl(a, b) {
+  endTension(true);
+  log(`💥 ${a.name} and ${b.name} are at it — glasses flying! The owner is livid.`, 'bad');
+  S.confidence = Math.max(0, S.confidence - 12);
+  for (const c of [a, b]) {
+    c.el.classList.add('fighting');
+    setBubble(c, '💥', '');
+    c.state = 'brawling';
+  }
+  setTimeout(() => {
+    for (const c of [a, b]) {
+      if (c.state !== 'gone') { log(`${c.name} got thrown out.`, 'bad'); removeCustomer(c, 500); }
+    }
+  }, 1300);
+  // the rest of the bar is rattled; some bolt for the door
+  for (const c of S.seats) {
+    if (!c || c === a || c === b || c.state === 'gone') continue;
+    c.patience = Math.max(5, c.patience - 25);
+    if (Math.random() < 0.25) {
+      S.confidence = Math.max(0, S.confidence - 2);
+      log(`${c.name} slipped out — wants no part of that.`, 'bad');
+      removeCustomer(c);
+    } else {
+      say(c, pick(['Here we go...', 'Mind the glasses!', 'Not again, lads!']));
+    }
+  }
 }
 
 function onCustomerClick(c) {
@@ -833,17 +1006,20 @@ function updateCustomer(c, dt) {
           c.dish = pick(D.dishes);
           enterState(c, 'wants_food');
         } else {
-          const another = Math.random() < CFG.REFILL_BASE && c.drunk < 75;
+          const another = !c.cutOff && Math.random() < CFG.REFILL_BASE && c.drunk < 75;
           enterState(c, another ? 'wants_refill' : 'wants_bill');
         }
       }
       break;
   }
+  updateRowdy(c, dt);
+
   // render meters
   const p = c.el.querySelector('.patience');
   p.querySelector('.fill').style.width = Math.max(0, c.patience) + '%';
   p.classList.toggle('low', c.patience < 30);
   p.classList.toggle('mid', c.patience >= 30 && c.patience < 60);
+  c.el.querySelector('.drunkm .fill').style.width = c.drunk + '%';
 }
 
 /* ============ CARRYING ============ */
@@ -1057,6 +1233,7 @@ function tick(t) {
   // customers
   for (const c of S.seats) if (c && c.state !== 'gone') updateCustomer(c, dt);
 
+  updateTension(dt);
   updateKitchen(dt);
   updatePour(dt);
   renderHUD();
