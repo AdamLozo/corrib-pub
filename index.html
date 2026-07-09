@@ -420,7 +420,29 @@
     border-radius: 0 0 40% 40%;
   }
   .mark { position: absolute; left: -3px; right: -3px; height: 0; border-top: 1px dashed rgba(243,201,107,.55); z-index: 2; }
-  .mark .mlbl { position: absolute; right: -30px; top: -7px; font-size: 9px; color: #c9a96e; }
+  .mark .mlbl { position: absolute; left: -26px; top: -7px; font-size: 9px; color: #c9a96e; }
+
+  /* ---- pour gauge: the zones for the current phase, and where you are ---- */
+  #gauge {
+    position: absolute; right: -18px; top: 48px; bottom: 8px; width: 9px;
+    border: 1px solid #4a3416; border-radius: 4px; background: #150d05;
+  }
+  .g-zone { position: absolute; left: 0; right: 0; border-radius: 3px; transition: bottom .3s, height .3s; }
+  #g-good    { background: rgba(217,185,107,.35); }
+  #g-perfect { background: rgba(126,200,106,.75); }
+  #g-rim {
+    position: absolute; left: -3px; right: -3px; bottom: 90.9%; height: 0;
+    border-top: 1px solid rgba(220,230,255,.4);
+  }
+  #g-needle {
+    position: absolute; left: -4px; right: -4px; bottom: 0; height: 2px;
+    background: #f5e6c4; box-shadow: 0 0 4px rgba(245,230,196,.8); border-radius: 1px;
+  }
+
+  /* glass rim tells you the zone you're in right now */
+  #pour-glass.z-good { border-color: #d9b96b; }
+  #pour-glass.z-perfect { border-color: #7ec86a; box-shadow: 0 0 12px rgba(126,200,106,.45); }
+  #pour-glass.z-over { border-color: #d96a4e; box-shadow: 0 0 10px rgba(217,106,78,.4); }
   #mark75 { bottom: 75%; }
   #glass-zone .rim-lbl {
     position: absolute; top: 42px; right: -6px; font-size: 9px; color: #c9a96e;
@@ -518,6 +540,7 @@
     #glass-zone { height: 148px; }
     #pour-glass { height: 98px; }
     #settle-ring { top: 36px; }
+    #gauge { top: 42px; right: -14px; width: 8px; }
     #pour-status { min-height: 28px; font-size: 11.5px; }
     .panel { max-width: none; flex: 1 1 40%; min-height: 100px; max-height: 148px; padding: 6px 8px; }
     .panel h3 { font-size: 10px; padding-bottom: 4px; margin-bottom: 5px; }
@@ -616,6 +639,12 @@
               <div id="liquid"><div id="surge"></div></div>
               <div id="head"></div>
               <div class="mark" id="mark75"><span class="mlbl">¾</span></div>
+            </div>
+            <div id="gauge">
+              <div class="g-zone" id="g-good"></div>
+              <div class="g-zone" id="g-perfect"></div>
+              <div id="g-rim"></div>
+              <div id="g-needle"></div>
             </div>
           </div>
         </div>
@@ -868,6 +897,8 @@ const sfx = {
                  tone(4200, .15, { gain: .04, delay: .05 }); tone(70, .3, { slideTo: 40, gain: .18, delay: .02 }); },
   splash()     { noiseHit(.3, { freq: 800, freqTo: 300, gain: .08 }); },
   fizz()       { noiseHit(4.4, { filter: 'highpass', freq: 3800, gain: .02, attack: .3 }); },
+  zoneIn()     { tone(1500, .09, { gain: .07 }); },
+  zoneOver()   { tone(240, .16, { type: 'square', gain: .05 }); },
   calm()       { tone(392, .2, { gain: .05 }); tone(330, .3, { gain: .05, delay: .15 }); },
   fired()      { [392, 330, 262, 196].forEach((f, i) => tone(f, .55, { type: 'triangle', gain: .09, delay: i * .4 })); },
   pourGrade(label) {
@@ -1471,7 +1502,43 @@ const GRADES = {
   Sloppy:  { label: 'Sloppy',  mult: 0.04 },
 };
 const P = { phase: 'idle', fill: 0, head: 0, pouring: false,
-            settleT: 0, rushed: false, spilled: false, err1: 0 };
+            settleT: 0, rushed: false, spilled: false, err1: 0, zone: 'under' };
+
+/* ---- pour zones: where Perfect and Good live for each phase ---- */
+const GAUGE_MAX = 110;
+const ZONES = {
+  pour1: { good: [62, 88], perfect: [70, 80] },     // mirrors the grading bands
+  pour2: { good: [96, 106], perfect: [99, 103] },
+};
+function setGaugeZones(phase) {
+  const z = ZONES[phase] || ZONES.pour1;
+  for (const [sel, [lo, hi]] of [['#g-good', z.good], ['#g-perfect', z.perfect]]) {
+    $(sel).style.bottom = (lo / GAUGE_MAX * 100) + '%';
+    $(sel).style.height = ((hi - lo) / GAUGE_MAX * 100) + '%';
+  }
+}
+function pourZone() {
+  const z = ZONES[P.phase] || ZONES.pour1;
+  if (P.fill >= z.perfect[0] && P.fill <= z.perfect[1]) return 'perfect';
+  if (P.fill > z.good[1]) return 'over';
+  if (P.fill >= z.good[0]) return 'good';
+  return 'under';
+}
+function updatePourFeedback() {
+  $('#g-needle').style.bottom = (Math.min(P.fill, GAUGE_MAX) / GAUGE_MAX * 100) + '%';
+  const glass = $('#pour-glass');
+  const active = P.phase === 'pour1' || P.phase === 'pour2';
+  const zone = active ? pourZone() : 'under';
+  glass.classList.toggle('z-perfect', zone === 'perfect');
+  glass.classList.toggle('z-good', zone === 'good');
+  glass.classList.toggle('z-over', zone === 'over');
+  // the ear cues: a ding entering the sweet spot, a buzz blowing past it
+  if (P.pouring && zone !== P.zone) {
+    if (zone === 'perfect') sfx.zoneIn();
+    else if (zone === 'over') sfx.zoneOver();
+  }
+  P.zone = zone;
+}
 
 function pourStatus(html) { $('#pour-status').innerHTML = html; }
 
@@ -1482,10 +1549,12 @@ function pourPress() {
   if (P.phase === 'idle') {
     Object.assign(P, { fill: 0, head: 0, settleT: 0, rushed: false, spilled: false, err1: 0 });
     P.phase = 'pour1';
+    P.zone = 'under';
+    setGaugeZones('pour1');
     hissStart(0.07);
     $('#pour-glass').classList.add('tilted');
     $('#head').style.height = '0px';
-    pourStatus('Steady stream — ease off at the <b>¾ line</b>.');
+    pourStatus('Steady stream — <b>ease off in the green</b>.');
   } else if (P.phase === 'pour2') {
     hissStart(0.04);
   } else if (P.phase === 'settle') {
@@ -1519,10 +1588,12 @@ function pourRelease() {
 
 function beginTopOff() {
   P.phase = 'pour2';
+  P.zone = 'under';
+  setGaugeZones('pour2');
   hissStart(0.04);
   $('#settle-ring').style.display = 'none';
   $('#surge').style.opacity = 0;
-  pourStatus('Top it off — stop <b>just proud of the rim</b>.');
+  pourStatus('Top it off — <b>stop on the ding</b>, just proud of the rim.');
 }
 
 function gradePour() {
@@ -1553,12 +1624,13 @@ function finishPour() {
 }
 
 function resetGlass() {
-  P.fill = 0; P.head = 0;
+  P.fill = 0; P.head = 0; P.zone = 'under';
   $('#liquid').style.height = '0%';
   $('#head').style.height = '0px';
   $('#surge').style.opacity = 0;
-  $('#pour-glass').classList.remove('tilted');
+  $('#pour-glass').classList.remove('tilted', 'z-perfect', 'z-good', 'z-over');
   $('#settle-ring').style.display = 'none';
+  $('#g-needle').style.bottom = '0%';
 }
 
 function updatePour(dt) {
@@ -1587,6 +1659,7 @@ function updatePour(dt) {
     if (P.fill >= POUR.SPILL_AT) { P.spilled = true; finishPour(); }
   }
   if (P.phase !== 'idle') $('#liquid').style.height = Math.min(100, P.fill) + '%';
+  updatePourFeedback();
 }
 
 const tapBtn = $('#tap-hold');
@@ -1754,6 +1827,7 @@ $('#start-btn').addEventListener('click', startShift);
 $('#name-input').addEventListener('keydown', e => { if (e.key === 'Enter') startShift(); });
 
 buildStools();
+setGaugeZones('pour1');
 </script>
 </body>
 </html>
