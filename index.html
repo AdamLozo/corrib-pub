@@ -135,7 +135,7 @@
   #stools {
     position: absolute; top: 8%; left: 0; right: 0; height: 30%;
     display: flex; justify-content: space-evenly; align-items: flex-end;
-    pointer-events: none;
+    pointer-events: none; z-index: 3;
   }
   .stool { position: relative; width: 15%; max-width: 150px; height: 100%; pointer-events: auto; }
   .stool .seat-shadow {
@@ -277,7 +277,7 @@
   .bubble {
     position: absolute; bottom: 104%; left: 50%; transform: translateX(-50%);
     background: #f5ecd7; color: #3a2812; font-size: 12px; line-height: 1.3;
-    border-radius: 10px; padding: 5px 9px; min-width: 46px; max-width: 150px;
+    border-radius: 10px; padding: 5px 9px; width: max-content; max-width: 150px;
     box-shadow: 0 3px 10px rgba(0,0,0,.45); z-index: 5; white-space: normal;
   }
   .bubble::after {
