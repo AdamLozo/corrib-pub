@@ -89,6 +89,11 @@
     background-size: 170px 100%;
     transition: width .4s;
   }
+  #mute-btn {
+    font-size: 17px; background: none; border: 1px solid #4a3416;
+    border-radius: 8px; padding: 4px 8px; line-height: 1;
+  }
+  #mute-btn:hover { border-color: #8a6a33; }
 
   /* ============ SCENE ============ */
   #scene {
@@ -465,6 +470,7 @@
       <div class="lbl">Owner's Confidence</div>
       <div id="confidence-bar"><div id="confidence-fill"></div></div>
     </div>
+    <button id="mute-btn" title="Sound on/off">🔊</button>
   </div>
 
   <div id="scene">
@@ -587,6 +593,124 @@ function log(msg, cls) {
   while (box.children.length > 60) box.removeChild(box.firstChild);
 }
 
+/* ============ SOUND (all WebAudio-synthesized — no assets) ============ */
+const SND = { ctx: null, master: null, noiseBuf: null, hiss: null, ambient: null, muted: false };
+
+function audioInit() {
+  if (SND.ctx) { SND.ctx.resume?.(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  const ctx = SND.ctx = new AC();
+  SND.master = ctx.createGain();
+  SND.master.gain.value = SND.muted ? 0 : 0.9;
+  SND.master.connect(ctx.destination);
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  SND.noiseBuf = buf;
+  startAmbience();
+}
+
+function setMuted(m) {
+  SND.muted = m;
+  try { localStorage.setItem('corrib-muted', m ? '1' : ''); } catch (e) {}
+  if (SND.master) SND.master.gain.value = m ? 0 : 0.9;
+  $('#mute-btn').textContent = m ? '🔇' : '🔊';
+}
+
+/* tiny synth helpers */
+function tone(freq, dur, o = {}) {
+  if (!SND.ctx) return;
+  const ctx = SND.ctx, t = ctx.currentTime + (o.delay || 0);
+  const osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.type = o.type || 'sine';
+  osc.frequency.setValueAtTime(freq, t);
+  if (o.slideTo) osc.frequency.exponentialRampToValueAtTime(o.slideTo, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(o.gain || 0.12, t + (o.attack || 0.005));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g); g.connect(SND.master);
+  osc.start(t); osc.stop(t + dur + 0.05);
+}
+
+function noiseHit(dur, o = {}) {
+  if (!SND.ctx) return;
+  const ctx = SND.ctx, t = ctx.currentTime + (o.delay || 0);
+  const src = ctx.createBufferSource();
+  src.buffer = SND.noiseBuf; src.loop = true;
+  const f = ctx.createBiquadFilter();
+  f.type = o.filter || 'bandpass';
+  f.frequency.setValueAtTime(o.freq || 1000, t);
+  if (o.freqTo) f.frequency.exponentialRampToValueAtTime(o.freqTo, t + dur);
+  f.Q.value = o.q || 1;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(o.gain || 0.1, t + (o.attack || 0.004));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f); f.connect(g); g.connect(SND.master);
+  src.start(t, Math.random()); src.stop(t + dur + 0.1);
+}
+
+/* the tap: continuous hiss while pouring */
+function hissStart(level) {
+  if (!SND.ctx) return;
+  hissStop(true);
+  const ctx = SND.ctx;
+  const src = ctx.createBufferSource(); src.buffer = SND.noiseBuf; src.loop = true;
+  const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 0.7;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(level, ctx.currentTime + 0.06);
+  src.connect(f); f.connect(g); g.connect(SND.master);
+  src.start(0, Math.random());
+  SND.hiss = { src, g };
+}
+function hissStop(instant) {
+  if (!SND.hiss) return;
+  const { src, g } = SND.hiss; SND.hiss = null;
+  const t = SND.ctx.currentTime;
+  g.gain.cancelScheduledValues(t);
+  g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + (instant ? 0.03 : 0.12));
+  src.stop(t + 0.2);
+}
+
+/* low murmuring room noise that thickens as the bar fills */
+function startAmbience() {
+  const ctx = SND.ctx;
+  const src = ctx.createBufferSource(); src.buffer = SND.noiseBuf; src.loop = true; src.playbackRate.value = 0.5;
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 380;
+  const g = ctx.createGain(); g.gain.value = 0.004;
+  const lfo = ctx.createOscillator(); lfo.frequency.value = 0.11;
+  const lfoG = ctx.createGain(); lfoG.gain.value = 0.0015;
+  lfo.connect(lfoG); lfoG.connect(g.gain);
+  src.connect(f); f.connect(g); g.connect(SND.master);
+  src.start(); lfo.start();
+  SND.ambient = g;
+}
+
+const sfx = {
+  clink()      { tone(2400, .18, { gain: .1 }); tone(3600, .13, { gain: .06, delay: .012 }); },
+  kaching()    { noiseHit(.06, { freq: 5000, gain: .05 }); tone(1180, .5, { gain: .09, delay: .05 }); tone(1770, .4, { gain: .05, delay: .07 }); },
+  squeak()     { noiseHit(.16, { freq: 900, freqTo: 2100, q: 6, gain: .07 }); },
+  doorSlam()   { tone(95, .25, { slideTo: 45, gain: .22 }); noiseHit(.12, { filter: 'lowpass', freq: 500, gain: .12 }); },
+  doorJingle() { tone(2900, .3, { gain: .045 }); tone(3800, .35, { gain: .035, delay: .09 }); },
+  kitchenBell(){ tone(1560, .35, { gain: .09 }); tone(1560, .4, { gain: .09, delay: .18 }); },
+  plate()      { noiseHit(.05, { filter: 'lowpass', freq: 900, gain: .09 }); tone(320, .1, { type: 'triangle', gain: .06, delay: .01 }); },
+  sting()      { tone(220, .55, { type: 'sawtooth', gain: .045 }); tone(233, .55, { type: 'sawtooth', gain: .045 }); },
+  smash()      { noiseHit(.35, { filter: 'highpass', freq: 2500, gain: .16 }); tone(3100, .2, { gain: .05, delay: .02 });
+                 tone(4200, .15, { gain: .04, delay: .05 }); tone(70, .3, { slideTo: 40, gain: .18, delay: .02 }); },
+  splash()     { noiseHit(.3, { freq: 800, freqTo: 300, gain: .08 }); },
+  fizz()       { noiseHit(4.4, { filter: 'highpass', freq: 3800, gain: .02, attack: .3 }); },
+  calm()       { tone(392, .2, { gain: .05 }); tone(330, .3, { gain: .05, delay: .15 }); },
+  fired()      { [392, 330, 262, 196].forEach((f, i) => tone(f, .55, { type: 'triangle', gain: .09, delay: i * .4 })); },
+  pourGrade(label) {
+    if (label === 'Perfect')   { tone(660, .14, { gain: .08 }); tone(880, .18, { gain: .08, delay: .1 }); tone(1320, .28, { gain: .07, delay: .2 }); }
+    else if (label === 'Good') { tone(660, .15, { gain: .07 }); tone(880, .2, { gain: .06, delay: .12 }); }
+    else { tone(330, .2, { type: 'triangle', gain: .08 }); tone(247, .3, { type: 'triangle', gain: .08, delay: .16 }); }
+  },
+};
+
 /* ============ DIALOGUE ============ */
 const D = {
   names: ['Declan','Sinead','Paddy','Aoife','Brendan','Niamh','Colm','Orla',
@@ -702,6 +826,7 @@ function spawnCustomer() {
   if (S.dirty[seat]) { c.patience = 70; }
   S.seats[seat] = c;
   renderCustomer(c);
+  sfx.doorJingle();
   if (S.dirty[seat]) say(c, line(D.dirtySeat), 4000);
 }
 
@@ -805,6 +930,7 @@ function leaveHappy(c) {
   else { bumpRep(-1); S.confidence = Math.max(0, S.confidence - 2);
          log(`${c.name} barely tipped — the owner counts every coin.`, 'bad'); }
   log(`${c.name} paid ${money(pay)} (${money(c.tipTotal)} tip) and ${line(D.leaveHappy)}`, 'good');
+  sfx.kaching();
   removeCustomer(c);
 }
 
@@ -812,6 +938,7 @@ function leaveAngry(c, reason) {
   S.confidence = Math.max(0, S.confidence - 6);
   bumpRep(-4);
   log(`${c.name} ${line(D.leaveAngry)}${reason ? ' (' + reason + ')' : ''}`, 'bad');
+  sfx.doorSlam();
   removeCustomer(c);
 }
 
@@ -834,6 +961,7 @@ function deliverPint(c) {
     c.tipTotal += CFG.PINT_PRICE * q.mult * speedFactor;
   }
   c.patience = Math.min(100, c.patience + 45);   // a fresh pint restores the soul
+  sfx.clink();
   say(c, line(q.mult >= 0.18 ? D.thanks : D.thanksBad));
   enterState(c, 'drinking');
 }
@@ -847,6 +975,7 @@ function calmDown(c) {
   c.calmUntil = S.shiftSec + 20;
   c.drunk = Math.max(0, c.drunk - 10);
   c.patience = Math.min(100, c.patience + 10);
+  sfx.calm();
   say(c, line(D.calmed));
   log(`You talked ${c.name} down. Peace in our time.`, 'good');
 }
@@ -892,6 +1021,7 @@ function scanForTension() {
       timer.className = 'tension-timer';
       a.el.appendChild(timer);
       log(`${a.name} and ${b.name} are squaring up — calm one of them, quick!`, 'bad');
+      sfx.sting();
       return;
     }
   }
@@ -918,6 +1048,7 @@ function updateTension(dt) {
 
 function brawl(a, b) {
   endTension(true);
+  sfx.smash();
   log(`💥 ${a.name} and ${b.name} are at it — glasses flying! The owner is livid.`, 'bad');
   S.confidence = Math.max(0, S.confidence - 12);
   for (const c of [a, b]) {
@@ -973,6 +1104,7 @@ function takeFoodOrder(c) {
 
 function deliverFood(c) {
   setCarrying(null);
+  sfx.plate();
   c.tab += c.dish.price;
   const speedFactor = 0.4 + 0.6 * (c.patience / 100);
   c.tipTotal += c.dish.price * CFG.FOOD_TIP * speedFactor;
@@ -986,7 +1118,7 @@ function updateKitchen(dt) {
   for (const o of S.kitchen) {
     if (!o.ready) {
       o.t -= dt;
-      if (o.t <= 0) { o.ready = true; changed = true; log(`Kitchen: ${o.dish.name} up for ${o.forName}!`); }
+      if (o.t <= 0) { o.ready = true; changed = true; sfx.kitchenBell(); log(`Kitchen: ${o.dish.name} up for ${o.forName}!`); }
       else {
         const el = document.querySelector(`.korder[data-kid="${o.kid}"] .ktime`);
         if (el) el.textContent = Math.ceil(o.t) + 's';
@@ -1038,6 +1170,7 @@ function makeDirty(seat) {
 
 function wipe(seat, messEl) {
   if (!S.dirty[seat]) return;
+  sfx.squeak();
   messEl.classList.add('wiping');
   setTimeout(() => messEl.remove(), 400);
   S.dirty[seat] = false;
@@ -1142,9 +1275,12 @@ function pourPress() {
   if (P.phase === 'idle') {
     Object.assign(P, { fill: 0, head: 0, settleT: 0, rushed: false, spilled: false, err1: 0 });
     P.phase = 'pour1';
+    hissStart(0.07);
     $('#pour-glass').classList.add('tilted');
     $('#head').style.height = '0px';
     pourStatus('Steady stream — ease off at the <b>¾ line</b>.');
+  } else if (P.phase === 'pour2') {
+    hissStart(0.04);
   } else if (P.phase === 'settle') {
     if (P.settleT < POUR.SETTLE) {
       P.rushed = true;
@@ -1159,10 +1295,12 @@ function pourRelease() {
   P.pouring = false;
   $('#tap-hold').classList.remove('held');
   $('#stream').style.height = '0px';
+  hissStop();
   if (P.phase === 'pour1') {
     P.err1 = Math.abs(P.fill - POUR.TARGET1);
     P.phase = 'settle';
     P.settleT = 0;
+    sfx.fizz();
     $('#pour-glass').classList.remove('tilted');
     $('#settle-ring').style.display = 'block';
     pourStatus('Now <b>let it settle</b>. Patience — the surge knows its own pace.');
@@ -1174,6 +1312,7 @@ function pourRelease() {
 
 function beginTopOff() {
   P.phase = 'pour2';
+  hissStart(0.04);
   $('#settle-ring').style.display = 'none';
   $('#surge').style.opacity = 0;
   pourStatus('Top it off — stop <b>just proud of the rim</b>.');
@@ -1192,7 +1331,9 @@ function finishPour() {
   P.pouring = false;
   $('#tap-hold').classList.remove('held');
   $('#stream').style.height = '0px';
+  hissStop(true);
   const g = gradePour();
+  sfx.pourGrade(g.label);
   P.phase = 'idle';
   pourStatus(`<b class="grade-${g.label}">${g.label} pour${g.label === 'Perfect' ? '!' : '.'}</b> ` +
     (g.label === 'Perfect' ? 'A pint to make Dublin weep.' :
@@ -1252,6 +1393,7 @@ $('#dump-btn').addEventListener('click', () => {
   if (S.carrying.type === 'pint') {
     setCarrying(null);
     resetGlass();
+    sfx.splash();
     pourStatus('Down the drain. The harp looks away in shame.');
   } else {
     // set the plate back on the hatch
@@ -1294,6 +1436,9 @@ function renderHUD() {
 function fireBartender() {
   S.fired = true;
   S.running = false;
+  hissStop(true);
+  sfx.fired();
+  if (SND.ambient) SND.ambient.gain.setTargetAtTime(0.001, SND.ctx.currentTime, 1.5);
   const m = Math.floor(S.shiftSec / 60), s = Math.floor(S.shiftSec % 60);
   const pc = S.pourCounts;
   $('#fired-scene').textContent =
@@ -1311,9 +1456,11 @@ function fireBartender() {
   $('#fired-screen').classList.add('show');
 }
 $('#restart-btn').addEventListener('click', () => location.reload());
+$('#mute-btn').addEventListener('click', () => setMuted(!SND.muted));
+try { if (localStorage.getItem('corrib-muted') === '1') setMuted(true); } catch (e) {}
 
 /* ============ MAIN LOOP ============ */
-let lastT = 0;
+let lastT = 0, ambAcc = 0;
 function tick(t) {
   if (!S.running) return;
   const dt = Math.min(0.1, (t - lastT) / 1000);
@@ -1346,6 +1493,14 @@ function tick(t) {
   updatePour(dt);
   renderHUD();
 
+  // room noise follows the crowd
+  ambAcc += dt;
+  if (ambAcc > 1 && SND.ambient) {
+    ambAcc = 0;
+    const crowd = S.seats.filter(Boolean).length;
+    SND.ambient.gain.setTargetAtTime(0.004 + crowd * 0.005, SND.ctx.currentTime, 0.6);
+  }
+
   if (S.confidence <= 0 && !S.fired) { fireBartender(); return; }
   requestAnimationFrame(tick);
 }
@@ -1353,6 +1508,7 @@ function tick(t) {
 /* ============ SETUP FLOW ============ */
 function startShift() {
   const name = $('#name-input').value.trim() || 'John';
+  audioInit();
   S.barkeep = name;
   $('#hud-name').textContent = name;
   $('#setup-screen').style.display = 'none';
