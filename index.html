@@ -689,6 +689,7 @@ function setMuted(m) {
   SND.muted = m;
   try { localStorage.setItem('corrib-muted', m ? '1' : ''); } catch (e) {}
   if (SND.master) SND.master.gain.value = m ? 0 : 0.9;
+  if (m && VOICE.playing) VOICE.playing.pause();
   $('#mute-btn').textContent = m ? '🔇' : '🔊';
 }
 
@@ -785,6 +786,39 @@ const sfx = {
   },
 };
 
+/* ============ VOICES (pre-generated clips in audio/; game degrades gracefully without them) ============ */
+const VOICE = { clips: {}, playing: null, lastAt: 0 };
+const V_TYPES = ['order','refill','food','thanks','thanksbad','bill','rowdy','calmed','cutoff','dirty'];
+const V_FILES = [
+  ...['v1','v2','v3'].flatMap(v => V_TYPES.map(t => `${v}_${t}`)),
+  'owner_filth','owner_warning','owner_fired',
+];
+
+function voicesInit() {
+  for (const n of V_FILES) {
+    const a = new Audio('audio/' + n + '.mp3');
+    a.preload = 'auto';
+    a.addEventListener('error', () => { VOICE.clips[n] = null; });
+    VOICE.clips[n] = a;
+  }
+}
+
+function speak(name, force) {
+  const a = VOICE.clips[name];
+  if (!a || SND.muted) return;
+  const now = performance.now() / 1000;
+  if (!force) {
+    if (VOICE.playing && !VOICE.playing.ended && !VOICE.playing.paused) return; // one voice at a time
+    if (now - VOICE.lastAt < 1.6) return;                                       // and no constant chatter
+  } else if (VOICE.playing) VOICE.playing.pause();
+  VOICE.lastAt = now;
+  const el = a.cloneNode();
+  el.volume = 0.85;
+  el.play().catch(() => {});
+  VOICE.playing = el;
+}
+const speakC = (c, type) => speak(`v${c.voice + 1}_${type}`);
+
 /* ============ DIALOGUE ============ */
 const D = {
   names: ['Declan','Sinead','Paddy','Aoife','Brendan','Niamh','Colm','Orla',
@@ -877,10 +911,13 @@ function spawnCustomer() {
   const clean = seats.filter(i => !S.dirty[i]);
   const seat = clean.length ? pick(clean) : pick(seats);
   const inUse = new Set(S.seats.filter(Boolean).map(c => c.name));
+  const face = pick(D.faces);
+  const FEMALE_FACES = ['👩‍🦰','👵','👩','🧔‍♀️'];
   const c = {
     id: S.nextId++,
     name: pick(D.names.filter(n => !inUse.has(n))) || pick(D.names),
-    face: pick(D.faces),
+    voice: FEMALE_FACES.includes(face) ? 2 : (Math.random() < 0.5 ? 0 : 1),
+    face,
     shirt: pick(D.shirts),
     seat,
     state: 'arriving',
@@ -901,7 +938,7 @@ function spawnCustomer() {
   S.seats[seat] = c;
   renderCustomer(c);
   sfx.doorJingle();
-  if (S.dirty[seat]) say(c, line(D.dirtySeat), 4000);
+  if (S.dirty[seat]) { say(c, line(D.dirtySeat), 4000); speakC(c, 'dirty'); }
 }
 
 function renderCustomer(c) {
@@ -950,14 +987,15 @@ function enterState(c, st) {
   c.state = st;
   switch (st) {
     case 'wants_drink':
-      setBubble(c, '🍺', ''); say(c, line(D.orderDrink), 3500); break;
+      setBubble(c, '🍺', ''); say(c, line(D.orderDrink), 3500); speakC(c, 'order'); break;
     case 'wants_refill':
-      setBubble(c, '🍺', 'Same again!'); break;
+      setBubble(c, '🍺', 'Same again!'); speakC(c, 'refill'); break;
     case 'wants_bill':
-      setBubble(c, '💵', 'Settle up?'); break;
+      setBubble(c, '💵', 'Settle up?'); speakC(c, 'bill'); break;
     case 'wants_food':
       setBubble(c, c.dish.icon, c.dish.name + '?');
       say(c, line(D.orderFood).replaceAll('{dish}', c.dish.name.toLowerCase()), 4000);
+      speakC(c, 'food');
       break;
     case 'waiting_food':
       setBubble(c, '⏳', c.dish.name + '…'); break;
@@ -1037,6 +1075,7 @@ function deliverPint(c) {
   c.patience = Math.min(100, c.patience + 45);   // a fresh pint restores the soul
   sfx.clink();
   say(c, line(q.mult >= 0.18 ? D.thanks : D.thanksBad));
+  speakC(c, q.mult >= 0.18 ? 'thanks' : 'thanksbad');
   enterState(c, 'drinking');
 }
 
@@ -1051,6 +1090,7 @@ function calmDown(c) {
   c.patience = Math.min(100, c.patience + 10);
   sfx.calm();
   say(c, line(D.calmed));
+  speakC(c, 'calmed');
   log(`You talked ${c.name} down. Peace in our time.`, 'good');
 }
 
@@ -1059,6 +1099,7 @@ function cutOff(c) {
   c.cutOff = true;
   c.tipTotal *= 0.85;
   say(c, line(D.cutOff), 3500);
+  speakC(c, 'cutoff');
   if (c.state === 'waiting_food') S.kitchen = S.kitchen.filter(o => o.forId !== c.id);
   enterState(c, 'wants_bill');
   log(`You cut ${c.name} off. The right call, probably.`);
@@ -1071,7 +1112,7 @@ function updateRowdy(c, dt) {
     c.barkT -= dt;
     if (c.barkT <= 0) {
       c.barkT = rand(5, 10);
-      if (!isWaiting(c)) say(c, line(D.rowdy), 2500);
+      if (!isWaiting(c)) { say(c, line(D.rowdy), 2500); speakC(c, 'rowdy'); }
     }
   }
 }
@@ -1513,6 +1554,7 @@ function fireBartender() {
   S.running = false;
   hissStop(true);
   sfx.fired();
+  speak('owner_fired', true);
   if (SND.ambient) SND.ambient.gain.setTargetAtTime(0.001, SND.ctx.currentTime, 1.5);
   const m = Math.floor(S.shiftSec / 60), s = Math.floor(S.shiftSec % 60);
   const pc = S.pourCounts;
@@ -1560,8 +1602,16 @@ function tick(t) {
     if (S.filthT <= 0) {
       S.filthT = 12;
       log(`The owner eyes the ${filth} dirty spots. Get a cloth moving, ${S.barkeep}.`, 'bad');
+      speak('owner_filth');
     }
   } else S.filthT = 0;
+
+  // the owner pulls you aside when his confidence gets shaky
+  if (S.confidence < 25 && !S.ownerWarned) {
+    S.ownerWarned = true;
+    speak('owner_warning', true);
+    log(`The owner leans in: "I'm watching you, ${S.barkeep}."`, 'bad');
+  } else if (S.confidence > 40) S.ownerWarned = false;
 
   // customers
   for (const c of S.seats) if (c && c.state !== 'gone') updateCustomer(c, dt);
@@ -1587,6 +1637,7 @@ function tick(t) {
 function startShift() {
   const name = $('#name-input').value.trim() || 'John';
   audioInit();
+  voicesInit();
   S.barkeep = name;
   $('#hud-name').textContent = name;
   $('#setup-screen').style.display = 'none';

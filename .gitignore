@@ -12,6 +12,11 @@ desktop.ini
 # Claude Code local settings
 .claude/settings.local.json
 
+# Secrets — never commit keys
+.env
+*.key
+.elevenlabs_key
+
 # Node / build tooling (if ever added)
 node_modules/
 dist/
