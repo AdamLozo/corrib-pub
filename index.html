@@ -13,6 +13,8 @@
     background: #16100a;
     color: #e8d9b8;
     overflow: hidden;
+    touch-action: manipulation;   /* no double-tap zoom while serving */
+    height: 100dvh;               /* mobile browsers: track the real viewport */
   }
   button { font-family: inherit; cursor: pointer; }
 
@@ -292,6 +294,11 @@
     content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
     border: 6px solid transparent; border-top-color: #f5ecd7;
   }
+  /* end stools: keep bubbles on screen (their jitter would drag them back off) */
+  .stool:first-child .bubble { left: 0; transform: none; animation: none; }
+  .stool:first-child .bubble::after { left: 28px; }
+  .stool:last-child .bubble { left: auto; right: 0; transform: none; animation: none; }
+  .stool:last-child .bubble::after { left: auto; right: 22px; }
   .bubble .want { font-size: 17px; }
   .bubble.urgent { background: #f2c9a8; animation: jitter .5s infinite; }
   .bubble.urgent::after { border-top-color: #f2c9a8; }
@@ -427,6 +434,72 @@
   .mess:hover { transform: translateX(-50%) scale(1.15); }
   .mess.wiping { opacity: 0; transform: translateX(-50%) scale(.4) rotate(40deg); }
   .stool.dirty .empty-marker { color: #a4693c; }
+
+  /* ============ MOBILE ============ */
+  @media (max-width: 820px) {
+    /* HUD wraps into two compact rows */
+    #hud { flex-wrap: wrap; gap: 6px 12px; padding: 6px 10px; }
+    #hud .pub-name { font-size: 15px; letter-spacing: 1px; }
+    #hud .barkeep { font-size: 10.5px; }
+    .stat { min-width: 0; }
+    .stat .val { font-size: 14px; }
+    .stat .lbl { font-size: 8px; }
+    #confidence-wrap { min-width: 104px; }
+    #mute-btn { padding: 3px 6px; font-size: 14px; }
+
+    /* squeeze the scene so the working counter gets the room */
+    #backbar { height: 25%; }
+    #backbar .sign { font-size: 14px; letter-spacing: 3px; padding: 2px 12px; }
+    .bottles { font-size: 12px; gap: 6px; }
+    .lamp { width: 54px; height: 54px; }
+    #stools { top: 3%; height: 25%; }
+    #bartop { top: 25%; height: 8%; }
+    #counter { top: 33%; flex-wrap: wrap; gap: 8px; padding: 8px; overflow-y: auto; }
+
+    /* six punters still fit — just smaller */
+    .customer { width: 56px; }
+    .customer .head { font-size: 24px; }
+    .customer .body { width: 38px; height: 24px; border-radius: 10px 10px 3px 3px; }
+    .customer .pname { font-size: 8px; }
+    .customer .pint-glass { font-size: 12px; height: 14px; }
+    .meter { width: 44px; }
+    .bubble { max-width: 96px; font-size: 10px; padding: 4px 6px; border-radius: 8px; }
+    .bubble .want { font-size: 13px; }
+    .actions button { font-size: 10px; padding: 4px 9px; }
+    .mess { font-size: 24px; bottom: -30px; padding: 6px; }
+    .mess::after { display: none; }
+    .tension-timer { font-size: 10px; top: -30px; }
+
+    /* pour station first and thumb-sized; kitchen + log share the row below */
+    #station { order: -1; width: 100%; min-width: 0; padding: 6px; }
+    #tap-assy { height: 148px; gap: 22px; }
+    #tap-hold { width: 100px; height: 128px; font-size: 12px; }
+    #glass-zone { height: 148px; }
+    #pour-glass { height: 98px; }
+    #settle-ring { top: 36px; }
+    #pour-status { min-height: 28px; font-size: 11.5px; }
+    .panel { max-width: none; flex: 1 1 40%; min-height: 92px; max-height: 120px; padding: 6px 8px; }
+    .panel h3 { font-size: 10px; padding-bottom: 4px; margin-bottom: 5px; }
+    #log { font-size: 10.5px; }
+    .korder { width: 31%; font-size: 9px; padding: 4px 2px; }
+    .korder .kicon { font-size: 18px; }
+
+    /* the carried pint docks above the station — fingers don't have cursors */
+    #carry.docked {
+      left: 50% !important; top: auto !important; bottom: 108px;
+      transform: translateX(-50%); text-align: center; font-size: 34px;
+    }
+
+    #setup-screen h1 { font-size: 42px; letter-spacing: 2px; }
+    #setup-screen h2 { font-size: 14px; margin-bottom: 24px; }
+    #name-input { width: 220px; font-size: 18px; }
+    #setup-screen .hint { font-size: 12px; }
+    #fired-screen h1 { font-size: 34px; }
+    #fired-screen .scene { font-size: 14px; margin: 12px 0 18px; }
+    #final-stats { gap: 14px; }
+    #final-stats .val { font-size: 20px; }
+    #final-stats .stat { min-width: 74px; }
+  }
 </style>
 </head>
 <body>
@@ -579,6 +652,7 @@ const bumpRep = d => { S.rep = Math.max(0, Math.min(100, S.rep + d)); };
 
 /* ============ UTILS ============ */
 const $ = sel => document.querySelector(sel);
+const IS_TOUCH = window.matchMedia('(pointer: coarse)').matches;
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const money = n => '$' + n.toFixed(2);
@@ -1387,6 +1461,7 @@ tapBtn.addEventListener('mousedown', pourPress);
 tapBtn.addEventListener('touchstart', e => { e.preventDefault(); pourPress(); }, { passive: false });
 document.addEventListener('mouseup', pourRelease);
 document.addEventListener('touchend', pourRelease);
+document.addEventListener('touchcancel', pourRelease);
 
 $('#dump-btn').addEventListener('click', () => {
   if (!S.carrying) return;
@@ -1458,6 +1533,9 @@ function fireBartender() {
 $('#restart-btn').addEventListener('click', () => location.reload());
 $('#mute-btn').addEventListener('click', () => setMuted(!SND.muted));
 try { if (localStorage.getItem('corrib-muted') === '1') setMuted(true); } catch (e) {}
+
+/* on touch screens the carried item docks above the station instead of chasing a cursor */
+if (IS_TOUCH) $('#carry').classList.add('docked');
 
 /* ============ MAIN LOOP ============ */
 let lastT = 0, ambAcc = 0;
