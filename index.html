@@ -834,16 +834,8 @@ function deliverPint(c) {
     c.tipTotal += CFG.PINT_PRICE * q.mult * speedFactor;
   }
   c.patience = Math.min(100, c.patience + 45);   // a fresh pint restores the soul
-  // fresh pint in hand is when the stomach pipes up
-  if (!c.wantedFood && Math.random() < Math.min(0.65, CFG.FOOD_CHANCE * diff())) {
-    c.wantedFood = true;
-    c.dish = pick(D.dishes);
-    c.el.querySelector('.pint-glass').textContent = '🍺';
-    enterState(c, 'wants_food');
-  } else {
-    say(c, line(q.mult >= 0.18 ? D.thanks : D.thanksBad));
-    enterState(c, 'drinking');
-  }
+  say(c, line(q.mult >= 0.18 ? D.thanks : D.thanksBad));
+  enterState(c, 'drinking');
 }
 
 /* ============ ROWDINESS & FIGHTS ============ */
@@ -1080,8 +1072,15 @@ function updateCustomer(c, dt) {
       if (c.t <= 0) {
         c.el.querySelector('.pint-glass').textContent = '';
         c.patience = Math.max(c.patience, 70);
-        const another = !c.cutOff && Math.random() < CFG.REFILL_BASE && c.drunk < 75;
-        enterState(c, another ? 'wants_refill' : 'wants_bill');
+        if (c.state === 'drinking' && !c.wantedFood &&
+            Math.random() < Math.min(0.65, CFG.FOOD_CHANCE * diff())) {
+          c.wantedFood = true;
+          c.dish = pick(D.dishes);
+          enterState(c, 'wants_food');
+        } else {
+          const another = !c.cutOff && Math.random() < CFG.REFILL_BASE && c.drunk < 75;
+          enterState(c, another ? 'wants_refill' : 'wants_bill');
+        }
       }
       break;
   }
