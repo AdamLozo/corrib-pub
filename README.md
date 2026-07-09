@@ -1,6 +1,6 @@
 # The Corrib 🍺
 
-A browser-based Irish pub bartending simulation by [Adam Lozo](https://adamlozo-landing.onrender.com). You're behind the bar at The Corrib — pour proper pints of Guinness, keep the regulars happy, and try not to get fired. One HTML file, no dependencies.
+A browser-based Irish pub bartending simulation by [Adam Lozo](https://adamlozo.com). You're behind the bar at The Corrib — pour proper pints of Guinness, keep the regulars happy, and try not to get fired. One HTML file, no dependencies.
 
 ## Play
 
