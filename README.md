@@ -4,7 +4,7 @@ A browser-based Irish pub bartending simulation by [Adam Lozo](https://adamlozo.
 
 ## Play
 
-Open `index.html` in any modern browser, give your bartender a name (John, Pete, Lindsay, Maryann — or your own), and start the shift.
+**Live at [corrib-pub.onrender.com](https://corrib-pub.onrender.com)** — or open `index.html` in any modern browser. Give your bartender a name (John, Pete, Lindsay, Maryann — or your own) and start the shift.
 
 ## How it works
 
