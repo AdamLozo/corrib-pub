@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Corrib — An Irish Pub Simulation</title>
+<style>
+  /* ============ BASE ============ */
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { height: 100%; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    background: #16100a;
+    color: #e8d9b8;
+    overflow: hidden;
+  }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* ============ SETUP SCREEN ============ */
+  #setup-screen {
+    position: absolute; inset: 0; z-index: 50;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background:
+      radial-gradient(ellipse at 50% 30%, rgba(255,170,60,.14), transparent 60%),
+      linear-gradient(#1d140b, #120c06);
+    text-align: center; padding: 20px;
+  }
+  #setup-screen h1 {
+    font-size: 64px; letter-spacing: 4px; color: #f3c96b;
+    text-shadow: 0 0 30px rgba(243,201,107,.35), 0 3px 0 #6b4a1a;
+  }
+  #setup-screen .shamrock { font-size: 40px; margin: 6px 0 2px; }
+  #setup-screen h2 {
+    font-size: 17px; font-weight: normal; font-style: italic;
+    color: #c9a96e; margin-bottom: 34px;
+  }
+  #setup-screen label { display: block; font-size: 15px; color: #d8c28f; margin-bottom: 10px; }
+  #name-input {
+    font-family: inherit; font-size: 22px; text-align: center;
+    padding: 10px 16px; width: 280px;
+    background: #2a1d0f; color: #f5e6c4;
+    border: 2px solid #8a6a33; border-radius: 8px; outline: none;
+  }
+  #name-input:focus { border-color: #f3c96b; box-shadow: 0 0 12px rgba(243,201,107,.3); }
+  .quick-names { margin: 14px 0 26px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .quick-names button {
+    background: #33230f; color: #d8b877; border: 1px solid #6b4f24;
+    border-radius: 20px; padding: 6px 16px; font-size: 14px;
+  }
+  .quick-names button:hover { background: #4a3416; color: #f3c96b; }
+  #start-btn {
+    font-size: 22px; letter-spacing: 1px; padding: 14px 44px;
+    background: linear-gradient(#2f6b34, #1e4a22); color: #f0e6c8;
+    border: 2px solid #57904f; border-radius: 10px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.5);
+  }
+  #start-btn:hover { background: linear-gradient(#3a7d40, #26582b); }
+  #setup-screen .hint { margin-top: 26px; font-size: 13px; color: #8a744c; max-width: 460px; line-height: 1.5; }
+
+  /* ============ GAME FRAME ============ */
+  #game { display: none; height: 100%; flex-direction: column; }
+  #game.active { display: flex; }
+
+  /* ---- header / stats ---- */
+  #hud {
+    display: flex; align-items: center; gap: 18px;
+    padding: 8px 16px;
+    background: linear-gradient(#241708, #1a1006);
+    border-bottom: 2px solid #5d431c;
+    flex: 0 0 auto;
+  }
+  #hud .pub-name { font-size: 20px; color: #f3c96b; letter-spacing: 2px; white-space: nowrap; }
+  #hud .barkeep { font-size: 13px; color: #b6935c; font-style: italic; white-space: nowrap; }
+  #hud .spacer { flex: 1; }
+  .stat { text-align: center; min-width: 74px; }
+  .stat .val { font-size: 18px; color: #f5e6c4; }
+  .stat .lbl { font-size: 10px; color: #977a45; text-transform: uppercase; letter-spacing: 1px; }
+  #confidence-wrap { min-width: 170px; }
+  #confidence-bar {
+    height: 12px; border-radius: 6px; background: #3a2812;
+    border: 1px solid #6b4f24; overflow: hidden; margin-top: 3px;
+  }
+  #confidence-fill {
+    height: 100%; width: 75%; border-radius: 6px;
+    background: linear-gradient(90deg, #b3402e, #d9a13b, #4f9c46);
+    background-size: 170px 100%;
+    transition: width .4s;
+  }
+
+  /* ============ SCENE ============ */
+  #scene {
+    flex: 1 1 auto; position: relative; overflow: hidden;
+    background:
+      radial-gradient(ellipse at 50% 18%, rgba(255,176,64,.16), transparent 55%),
+      linear-gradient(#33220f 0%, #2a1b0c 45%, #201307 100%);
+  }
+  /* back bar shelves */
+  #backbar {
+    position: absolute; top: 0; left: 0; right: 0; height: 34%;
+    background: linear-gradient(#1e1206, #2b1a0a);
+    border-bottom: 6px solid #120a04;
+  }
+  #backbar .sign {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    font-size: 24px; letter-spacing: 6px; color: #f3c96b;
+    text-shadow: 0 0 18px rgba(243,201,107,.55);
+    border: 2px solid #7a5a26; border-radius: 6px; padding: 3px 22px;
+    background: rgba(20,12,4,.7);
+  }
+  .shelf {
+    position: absolute; left: 6%; right: 6%; height: 7px;
+    background: linear-gradient(#5d431c, #3a2812);
+    border-radius: 2px; box-shadow: 0 3px 6px rgba(0,0,0,.5);
+  }
+  .shelf.s1 { top: 44%; } .shelf.s2 { top: 74%; }
+  .bottles { position: absolute; left: 7%; right: 7%; display: flex; gap: 14px; justify-content: center; font-size: 20px; }
+  .bottles.b1 { top: 21%; } .bottles.b2 { top: 51%; }
+  .lamp {
+    position: absolute; top: 0; width: 90px; height: 90px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,190,80,.35), transparent 70%);
+  }
+  .lamp.l1 { left: 12%; } .lamp.l2 { right: 12%; }
+
+  /* bar top */
+  #bartop {
+    position: absolute; top: 34%; left: 0; right: 0; height: 13%;
+    background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,.07) 0 3px, transparent 3px 90px),
+      linear-gradient(#8a5f2b 0%, #6e4a1f 30%, #543715 100%);
+    border-top: 4px solid #a97b3c;
+    box-shadow: 0 8px 20px rgba(0,0,0,.6);
+  }
+
+  /* stools row (customers sit "behind" the bar top, facing us) */
+  #stools {
+    position: absolute; top: 8%; left: 0; right: 0; height: 30%;
+    display: flex; justify-content: space-evenly; align-items: flex-end;
+    pointer-events: none;
+  }
+  .stool { position: relative; width: 15%; max-width: 150px; height: 100%; pointer-events: auto; }
+  .stool .seat-shadow {
+    position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
+    width: 70%; height: 12px; border-radius: 50%;
+    background: rgba(0,0,0,.35);
+  }
+  .stool .empty-marker {
+    position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: #7a5f36; font-style: italic; white-space: nowrap;
+  }
+
+  /* front counter area (player side) */
+  #counter {
+    position: absolute; top: 47%; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(#20130a, #170d05 70%);
+    display: flex; align-items: stretch; justify-content: center; gap: 24px;
+    padding: 12px 20px 10px;
+  }
+
+  /* pour station placeholder (built out in the pour mini-game feature) */
+  #station {
+    width: 300px; min-width: 260px;
+    background: linear-gradient(#2c1c0c, #221407);
+    border: 2px solid #5d431c; border-radius: 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; padding: 10px;
+  }
+  #station .tap-label { font-size: 13px; color: #b6935c; letter-spacing: 2px; text-transform: uppercase; }
+  #station .tap-art { font-size: 46px; }
+
+  /* kitchen + log side panels */
+  .panel {
+    flex: 1; max-width: 320px;
+    background: rgba(30,19,8,.85); border: 2px solid #4a3416; border-radius: 12px;
+    padding: 10px 12px; display: flex; flex-direction: column;
+  }
+  .panel h3 {
+    font-size: 12px; color: #b6935c; letter-spacing: 2px; text-transform: uppercase;
+    border-bottom: 1px solid #4a3416; padding-bottom: 6px; margin-bottom: 8px;
+  }
+  #log { flex: 1; overflow-y: auto; font-size: 12.5px; line-height: 1.55; color: #cdb489; }
+  #log p { margin-bottom: 2px; }
+  #log .good { color: #8fc07a; }
+  #log .bad { color: #d98a6e; }
+  #kitchen-items { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; }
+</style>
+</head>
+<body>
+
+<!-- ============ SETUP ============ -->
+<div id="setup-screen">
+  <div class="shamrock">☘️</div>
+  <h1>THE CORRIB</h1>
+  <h2>“Good pints, good craic, and God help whoever's behind the bar.”</h2>
+  <label for="name-input">Who's on the taps tonight?</label>
+  <input id="name-input" maxlength="16" placeholder="Your name" autocomplete="off">
+  <div class="quick-names">
+    <button data-name="John">John</button>
+    <button data-name="Pete">Pete</button>
+    <button data-name="Lindsay">Lindsay</button>
+    <button data-name="Maryann">Maryann</button>
+  </div>
+  <button id="start-btn">Start the Shift</button>
+  <p class="hint">The shift never ends — you pour until the owner loses faith and sacks you.
+  Keep pints perfect, punters patient, and the bar clean.</p>
+</div>
+
+<!-- ============ GAME ============ -->
+<div id="game">
+  <div id="hud">
+    <div>
+      <div class="pub-name">THE CORRIB</div>
+      <div class="barkeep">Behind the bar: <span id="hud-name">—</span></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="stat"><div class="val" id="stat-tips">$0.00</div><div class="lbl">Tips</div></div>
+    <div class="stat"><div class="val" id="stat-pints">0</div><div class="lbl">Guinness</div></div>
+    <div class="stat"><div class="val" id="stat-served">0</div><div class="lbl">Served</div></div>
+    <div class="stat"><div class="val" id="stat-clock">0:00</div><div class="lbl">Shift</div></div>
+    <div class="stat" id="confidence-wrap">
+      <div class="lbl">Owner's Confidence</div>
+      <div id="confidence-bar"><div id="confidence-fill"></div></div>
+    </div>
+  </div>
+
+  <div id="scene">
+    <div id="backbar">
+      <div class="lamp l1"></div><div class="lamp l2"></div>
+      <div class="sign">THE CORRIB</div>
+      <div class="bottles b1">🥃🍾🥃🍷🥃🍾</div>
+      <div class="shelf s1"></div>
+      <div class="bottles b2">🍷🥃🍾🥃🍷🥃</div>
+      <div class="shelf s2"></div>
+    </div>
+    <div id="stools"></div>
+    <div id="bartop"></div>
+    <div id="counter">
+      <div class="panel" id="kitchen-panel">
+        <h3>Kitchen Hatch</h3>
+        <div id="kitchen-items"></div>
+      </div>
+      <div id="station">
+        <div class="tap-label">Guinness Tap</div>
+        <div class="tap-art">🍺</div>
+      </div>
+      <div class="panel">
+        <h3>The Night So Far</h3>
+        <div id="log"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ============ CONFIG ============ */
+const CFG = {
+  STOOLS: 6,
+};
+
+/* ============ STATE ============ */
+const S = {
+  barkeep: 'John',
+  running: false,
+  shiftSec: 0,
+  tips: 0,
+  pintsServed: 0,
+  customersServed: 0,
+  confidence: 75,      // owner's confidence, 0–100; hit 0 and you're fired
+  seats: [],           // per-stool: null | customer object
+};
+
+/* ============ UTILS ============ */
+const $ = sel => document.querySelector(sel);
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const money = n => '$' + n.toFixed(2);
+
+function log(msg, cls) {
+  const el = document.createElement('p');
+  if (cls) el.className = cls;
+  el.textContent = msg;
+  const box = $('#log');
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  while (box.children.length > 60) box.removeChild(box.firstChild);
+}
+
+/* ============ SCENE SETUP ============ */
+function buildStools() {
+  const row = $('#stools');
+  row.innerHTML = '';
+  for (let i = 0; i < CFG.STOOLS; i++) {
+    const st = document.createElement('div');
+    st.className = 'stool';
+    st.dataset.seat = i;
+    st.innerHTML = `<div class="seat-shadow"></div><div class="empty-marker">empty stool</div>`;
+    row.appendChild(st);
+    S.seats.push(null);
+  }
+}
+
+/* ============ HUD ============ */
+function renderHUD() {
+  $('#stat-tips').textContent = money(S.tips);
+  $('#stat-pints').textContent = S.pintsServed;
+  $('#stat-served').textContent = S.customersServed;
+  const m = Math.floor(S.shiftSec / 60), s = Math.floor(S.shiftSec % 60);
+  $('#stat-clock').textContent = `${m}:${String(s).padStart(2, '0')}`;
+  $('#confidence-fill').style.width = Math.max(0, S.confidence) + '%';
+}
+
+/* ============ MAIN LOOP ============ */
+let lastT = 0;
+function tick(t) {
+  if (!S.running) return;
+  const dt = Math.min(0.1, (t - lastT) / 1000);
+  lastT = t;
+  S.shiftSec += dt;
+  renderHUD();
+  requestAnimationFrame(tick);
+}
+
+/* ============ SETUP FLOW ============ */
+function startShift() {
+  const name = $('#name-input').value.trim() || 'John';
+  S.barkeep = name;
+  $('#hud-name').textContent = name;
+  $('#setup-screen').style.display = 'none';
+  $('#game').classList.add('active');
+  S.running = true;
+  log(`Right so, ${name} — keys to the taps are yours. Don't make a show of us.`);
+  requestAnimationFrame(t => { lastT = t; requestAnimationFrame(tick); });
+}
+
+document.querySelectorAll('.quick-names button').forEach(b =>
+  b.addEventListener('click', () => { $('#name-input').value = b.dataset.name; }));
+$('#start-btn').addEventListener('click', startShift);
+$('#name-input').addEventListener('keydown', e => { if (e.key === 'Enter') startShift(); });
+
+buildStools();
+</script>
+</body>
+</html>
